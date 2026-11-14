@@ -45,23 +45,26 @@ def build_scene(human_plays_sona: bool):
 
     from controllers.utility_bot import UtilityBotController
 
+    from agent2.profiles import profile_for_champion
+
     human = HumanController()
     if human_plays_sona:
         sona_ctrl = human
     elif os.environ.get("UTILITY", "1") != "0":
-        sona_ctrl = UtilityBotController()   # versatile utility brain (default)
+        # Sona plays as her enchanter archetype
+        sona_ctrl = UtilityBotController(profile_for_champion("Sona"))
     else:
         sona_ctrl = BotController()          # old planner+tree brain
-    # every bot champion uses the utility brain with ROLE WEIGHTS so a real
-    # fight happens: divers (Zac/Jax) hunt carries, carries kite/trade, Sona
-    # peels. This is what gives the screen visible game behavior.
-    from agent2.roles import weights_for
+    # every bot champion plays by its CHAMPION ARCHETYPE profile, so they feel
+    # distinct: Sona/Lulu enchanters, Ryze a mage, Jax a bruiser, Zac a tank —
+    # not all support-flavored. This also stops the one-note peel/kite loop.
+    from agent2.profiles import profile_for_champion
     controllers = {
         "Sona": sona_ctrl,
-        "Lulu": UtilityBotController(weights_for("ADC")),
-        "Ryze": UtilityBotController(weights_for("MID")),
-        "Zac":  UtilityBotController(weights_for("JUNGLE")),
-        "Jax":  UtilityBotController(weights_for("TOP")),
+        "Lulu": UtilityBotController(profile_for_champion("Lulu")),
+        "Ryze": UtilityBotController(profile_for_champion("Ryze")),
+        "Zac":  UtilityBotController(profile_for_champion("Zac")),
+        "Jax":  UtilityBotController(profile_for_champion("Jax")),
     }
     return world, controllers, human, (sona_ctrl if not human_plays_sona else None)
 
