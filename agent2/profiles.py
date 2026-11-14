@@ -101,10 +101,14 @@ CHAMPION_ARCHETYPE = {
 }
 
 
+def _base_key(name: str) -> str:
+    return name.rstrip("0123456789")   # 'Jax2' -> 'Jax' (mirror matchups)
+
+
 def profile_for_champion(name: str) -> dict[str, float]:
-    arch = CHAMPION_ARCHETYPE.get(name)
+    arch = CHAMPION_ARCHETYPE.get(_base_key(name))
     return dict(ARCHETYPES.get(arch, {})) if arch else {}
 
 
 def archetype_of(name: str) -> str:
-    return CHAMPION_ARCHETYPE.get(name, "UNKNOWN")
+    return CHAMPION_ARCHETYPE.get(_base_key(name), "UNKNOWN")

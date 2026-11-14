@@ -103,6 +103,22 @@ def poke():
     return champs, 999, "Mage vs a target at range — poke / kite", "Ryze"
 
 
+def balanced_5v5():
+    """A FAIR mirror matchup: both teams have the same 5 champions at the same
+    level, meeting at mid. The real test of whether the bots play well — no side
+    has a built-in advantage, so outcome reflects decision quality, not the
+    setup. Also exercises the full behavior range across both teams."""
+    roster = [("Lulu", "ADC"), ("Sona", "SUPPORT"), ("Ryze", "MID"),
+              ("Jax", "TOP"), ("Zac", "JUNGLE")]
+    champs = []
+    # blue team clustered lower-left of mid, red upper-right, symmetric offsets
+    for i, (name, role) in enumerate(roster):
+        ox = (i - 2) * 200
+        champs.append(_c(name, "ALLY", role, 7000 + ox, 7000 - ox))
+        champs.append(_c(name + "2", "ENEMY", role, 7900 + ox, 7900 - ox))
+    return champs, 5, "Fair 5v5 mirror at mid — the real test of bot quality", None
+
+
 SCENARIOS = {
     "dive": dive,
     "farm": farm,
@@ -111,6 +127,7 @@ SCENARIOS = {
     "skirmish": skirmish,
     "retreat": retreat,
     "poke": poke,
+    "balanced": balanced_5v5,
 }
 
 

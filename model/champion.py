@@ -78,10 +78,16 @@ class Champion:
     ability_ranks: dict[str, int] = field(default_factory=lambda: {
         "Q": 1, "W": 1, "E": 1, "R": 1})
 
+    def champion_key(self) -> str:
+        """Base champion identity for stats/abilities/profile lookup. Lets a
+        mirror matchup use display names like 'Jax2' that resolve to 'Jax'."""
+        return self.name.rstrip("0123456789")
+
     def __post_init__(self) -> None:
-        base = base_stats_for(self.name)
+        key = self.champion_key()
+        base = base_stats_for(key)
         self.stats = ChampionStats.resolve(base, self.level)
-        self.abilities = abilities_for(self.name)
+        self.abilities = abilities_for(key)
         self.hp = self.stats.max_hp
         self.mp = self.stats.max_mp
         self.cooldowns = {"Q": 0.0, "W": 0.0, "E": 0.0, "R": 0.0}
