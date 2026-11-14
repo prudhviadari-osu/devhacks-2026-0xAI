@@ -83,6 +83,9 @@ class PeelCarry(Capability):
 
 
 class EngageCC(Capability):
+    """Initiate a fight. If the CC ability is in range, cast it; if not, this
+    capability still proposes MOVING toward the target (so bruisers/tanks with
+    short-range engage actually walk in to dive instead of wandering)."""
     name = "engage_cc"
 
     def propose(self, p, weights):
@@ -93,17 +96,30 @@ class EngageCC(Capability):
         cc = _best_cc_slot(me)
         if not cc:
             return None
-        # engage the lowest-hp enemy in CC range
-        in_rng = [e for e in enemies if _in_range(me, e, me.abilities[cc].range)]
-        if not in_rng:
-            return None
-        tgt = min(in_rng, key=lambda e: e.hp_frac)
-        # better when we outnumber / target is low
+        # pick the best dive target: prefer the lowest-hp enemy carry
+        carries = [e for e in enemies if e.role in ("ADC", "MID")] or enemies
+        tgt = min(carries, key=lambda e: e.hp_frac)
         advantage = len(p.allies()) + 1 - len(enemies)
-        score = 0.9 + 0.3 * max(0, advantage) + 0.4 * (1 - tgt.hp_frac)
-        return Proposal(score * self.w(weights, 0.8), Cast(cc, target=tgt.name),
-                        self.name, f"engage {tgt.name}",
-                        comms=f"Engaging {tgt.name} — follow up!", target=tgt.name)
+        rng = me.abilities[cc].range
+
+        if _in_range(me, tgt, rng):
+            score = 1.0 + 0.3 * max(0, advantage) + 0.4 * (1 - tgt.hp_frac)
+            return Proposal(score * self.w(weights, 0.8),
+                            Cast(cc, target=tgt.name), self.name,
+                            f"engage {tgt.name}",
+                            comms=f"Engaging {tgt.name} — follow up!",
+                            target=tgt.name)
+
+        # out of range: APPROACH the target (slightly lower score than casting,
+        # but high enough that an engage-weighted champ commits to the dive)
+        d = p.dist(me, tgt)
+        if d < 4000:  # only commit to a dive from a reasonable distance
+            score = 0.8 + 0.3 * max(0, advantage) + 0.3 * (1 - tgt.hp_frac)
+            return Proposal(score * self.w(weights, 0.8),
+                            Move(tgt.x, tgt.y), self.name,
+                            f"close in on {tgt.name} to engage",
+                            comms=f"Going in on {tgt.name}.", target=tgt.name)
+        return None
 
 
 class KiteAttack(Capability):

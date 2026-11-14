@@ -34,14 +34,20 @@ TICK_HZ = 30  # frames per second
 
 
 def build_scene(human_plays_sona: bool):
+    # Lane setup around MID (where minion waves meet ~7500,7500), so archetypes
+    # have something to do: ally botlane (Lulu+Sona) just behind the wave, Ryze
+    # mid, and the enemy bruiser/tank on the other side to fight. Champions start
+    # on their own side of the wave so they farm/poke/trade before clashing.
     champs = [
-        Champion("Sona", "ALLY", "SUPPORT", level=6, x=5000, y=5000),
-        Champion("Lulu", "ALLY", "ADC", level=6, x=5200, y=4900),
-        Champion("Ryze", "ALLY", "MID", level=6, x=4700, y=5300),
-        Champion("Zac",  "ENEMY", "JUNGLE", level=6, x=9000, y=9000),
-        Champion("Jax",  "ENEMY", "TOP", level=6, x=9300, y=8700),
+        # ally side (toward blue base, lower-left of mid)
+        Champion("Lulu", "ALLY", "ADC", level=6, x=6400, y=6400),
+        Champion("Sona", "ALLY", "SUPPORT", level=6, x=6200, y=6600),
+        Champion("Ryze", "ALLY", "MID", level=6, x=6600, y=6200),
+        # enemy side (toward red base, upper-right of mid)
+        Champion("Zac",  "ENEMY", "JUNGLE", level=6, x=8700, y=8700),
+        Champion("Jax",  "ENEMY", "TOP", level=6, x=8900, y=8500),
     ]
-    world = World(champs, dragon_spawn=15.0)
+    world = World(champs, dragon_spawn=20.0)
 
     from controllers.utility_bot import UtilityBotController
 
