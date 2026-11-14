@@ -34,20 +34,19 @@ TICK_HZ = 30  # frames per second
 
 
 def build_scene(human_plays_sona: bool):
-    # Lane setup around MID (where minion waves meet ~7500,7500), so archetypes
-    # have something to do: ally botlane (Lulu+Sona) just behind the wave, Ryze
-    # mid, and the enemy bruiser/tank on the other side to fight. Champions start
-    # on their own side of the wave so they farm/poke/trade before clashing.
+    # Two squads facing off near mid, close enough that SKIRMISH/TEAMFIGHT phases
+    # trigger and the archetypes actually fight — not so far they drift into a
+    # passive LANING stalemate. Dragon up early to pull them together.
     champs = [
-        # ally side (toward blue base, lower-left of mid)
-        Champion("Lulu", "ALLY", "ADC", level=6, x=6400, y=6400),
-        Champion("Sona", "ALLY", "SUPPORT", level=6, x=6200, y=6600),
-        Champion("Ryze", "ALLY", "MID", level=6, x=6600, y=6200),
-        # enemy side (toward red base, upper-right of mid)
-        Champion("Zac",  "ENEMY", "JUNGLE", level=6, x=8700, y=8700),
-        Champion("Jax",  "ENEMY", "TOP", level=6, x=8900, y=8500),
+        # ally squad (lower-left of mid)
+        Champion("Lulu", "ALLY", "ADC", level=6, x=6800, y=6800),
+        Champion("Sona", "ALLY", "SUPPORT", level=6, x=6600, y=7000),
+        Champion("Ryze", "ALLY", "MID", level=6, x=7000, y=6600),
+        # enemy squad (upper-right of mid) — within skirmish range of allies
+        Champion("Zac",  "ENEMY", "JUNGLE", level=6, x=8000, y=8000),
+        Champion("Jax",  "ENEMY", "TOP", level=6, x=8200, y=7800),
     ]
-    world = World(champs, dragon_spawn=20.0)
+    world = World(champs, dragon_spawn=5.0)
 
     from controllers.utility_bot import UtilityBotController
 

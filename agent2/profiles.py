@@ -1,122 +1,103 @@
 """
-Champion archetype profiles — personalized play, not everyone-is-a-support.
+Champion archetype profiles over the consolidated behavior set.
 
-Each ARCHETYPE defines weights over the capability repertoire so a champion plays
-like its class: an enchanter shields/peels, a mage pokes/zones, a bruiser dives
-and sticks, a tank engages with its body and peels with CC, a marksman farms and
-kites. Weight > 1 = prefer, < 1 = avoid, 0 = effectively never.
+Weights multiply each behavior's utility. Keys must match behavior names in
+agent2/behaviors.py. >1 prefer, <1 avoid, 0 effectively never. This is what makes
+each class play distinctly over the SAME ~25 behaviors.
 
-Mapping champions -> archetype is in CHAMPION_ARCHETYPE. Add a champion = map it
-to an archetype (or give it a bespoke profile).
-
-This replaces the thin role weights in roles.py with class identity, so the bots
-stop all feeling support-flavored.
+Behavior names:
+  last_hit push_wave poke auto_trade cc_diver shield_ally body_block self_peel
+  dive_carry pick_isolated collapse all_in focus_target protect_carry reposition
+  secure_objective contest_objective trade_objective ward flee disengage recall
+  group roam hold
 """
 from __future__ import annotations
 
-# capability names (keep in sync with agent2/capabilities.py)
-#   peel_carry engage_cc kite trade farm ward_objective recall disengage follow_carry
-
-ENCHANTER = {   # Sona, Lulu: protect/peel/shield, stay back, don't dive or farm
-    "peel_carry": 1.8,
-    "protect_low_ally": 1.9,   # shielding/healing is their signature
-    "ward_objective": 1.1,
-    "trade": 0.7,            # light poke
-    "kite": 0.5,
-    "engage_cc": 0.5,        # only as peel, not initiation
-    "focus_fire": 0.6,
-    "chase": 0.3,
-    "group": 1.2,            # enchanters hate being alone
-    "farm": 0.15,
-    "follow_carry": 1.1,     # glued to the carry
-    "flee_low": 1.6,
-    "recall": 1.0,
-    "disengage": 1.2,
+ENCHANTER = {   # Sona, Lulu: protect/peel/shield, stay back, don't dive/farm
+    "shield_ally": 1.9,
+    "cc_diver": 1.6,
+    "body_block": 1.4,
+    "ward": 1.1,
+    "protect_carry": 1.3,
+    "poke": 0.6,
+    "group": 1.2,
+    "self_peel": 1.0,
+    "last_hit": 0.15, "push_wave": 0.2,
+    "dive_carry": 0.2, "pick_isolated": 0.2, "all_in": 0.3,
+    "focus_target": 0.5,
+    "roam": 0.8,
+    "flee": 1.3, "disengage": 1.2, "recall": 1.0, "hold": 1.0,
+    "secure_objective": 0.7, "contest_objective": 0.5, "trade_objective": 0.6,
 }
 
-MAGE = {        # Ryze: poke/burst from range, zone, farm to scale, don't dive
-    "trade": 1.5,           # poke is the mage's bread and butter
-    "focus_fire": 1.3,      # bursts the low target in fights
-    "farm": 1.3,
-    "kite": 1.1,
-    "engage_cc": 0.7,       # root to peel/catch, not to dive
-    "chase": 0.6,
-    "group": 1.0,
-    "peel_carry": 0.5,
-    "protect_low_ally": 0.2,
-    "ward_objective": 0.6,
-    "follow_carry": 0.4,
-    "flee_low": 1.7,
-    "recall": 1.0,
-    "disengage": 1.3,       # squishy -> values escape
+MAGE = {        # Ryze: poke/burst from range, farm to scale, don't dive
+    "poke": 1.6,
+    "focus_target": 1.4,
+    "last_hit": 1.3, "push_wave": 0.9,
+    "auto_trade": 0.9,
+    "pick_isolated": 0.9,
+    "reposition": 1.1,
+    "self_peel": 1.0,
+    "cc_diver": 0.6, "shield_ally": 0.0, "body_block": 0.2,
+    "dive_carry": 0.5, "collapse": 0.8, "all_in": 0.7,
+    "ward": 0.3, "group": 1.0, "roam": 0.9,
+    "flee": 1.6, "disengage": 1.3, "recall": 1.0, "hold": 0.5,
+    "secure_objective": 0.8, "contest_objective": 0.6,
 }
 
-MARKSMAN = {    # (if an ADC joins): farm hard, kite, trade; never initiate
-    "farm": 1.6,
-    "kite": 1.5,
-    "focus_fire": 1.4,
-    "trade": 1.1,
-    "chase": 0.7,
-    "group": 1.1,
-    "engage_cc": 0.3,
-    "peel_carry": 0.3,
-    "protect_low_ally": 0.0,
-    "ward_objective": 0.5,
-    "follow_carry": 0.3,
-    "flee_low": 1.8,
-    "recall": 1.0,
-    "disengage": 1.3,
+MARKSMAN = {    # ADC: farm hard, kite-auto, focus in fights; never initiate
+    "last_hit": 1.7, "push_wave": 1.0,
+    "auto_trade": 1.4,
+    "focus_target": 1.6,
+    "self_peel": 1.2, "reposition": 1.2,
+    "poke": 0.6,
+    "cc_diver": 0.2, "shield_ally": 0.0, "body_block": 0.0,
+    "dive_carry": 0.2, "pick_isolated": 0.3, "collapse": 0.6, "all_in": 0.5,
+    "ward": 0.0, "group": 1.1, "roam": 0.4,
+    "flee": 1.7, "disengage": 1.3, "recall": 1.0, "hold": 0.4,
+    "secure_objective": 0.8, "contest_objective": 0.7,
 }
 
-BRUISER = {     # Jax: dive the carry, stick to it, chase; moderately durable
-    "engage_cc": 1.6,
-    "chase": 1.5,           # bruisers run you down
-    "trade": 1.4,
-    "focus_fire": 1.2,
-    "kite": 1.2,            # sticky, attack-move onto target
-    "farm": 0.9,
-    "group": 0.6,
-    "peel_carry": 0.3,
-    "protect_low_ally": 0.0,
-    "ward_objective": 0.5,
-    "follow_carry": 0.2,
-    "flee_low": 1.0,        # durable -> flees less eagerly
-    "recall": 0.8,
-    "disengage": 0.6,       # commits to fights
+BRUISER = {     # Jax: dive the carry, catch picks, commit; durable
+    "dive_carry": 1.6,
+    "pick_isolated": 1.4,
+    "all_in": 1.4,
+    "collapse": 1.2,
+    "focus_target": 1.2,
+    "auto_trade": 1.1, "push_wave": 0.9, "last_hit": 0.8,
+    "self_peel": 0.6,
+    "cc_diver": 0.4, "shield_ally": 0.0, "body_block": 0.2,
+    "protect_carry": 0.2, "reposition": 0.2,
+    "ward": 0.3, "group": 0.6, "roam": 0.7,
+    "flee": 0.9, "disengage": 0.6, "recall": 0.8, "hold": 0.3,
+    "secure_objective": 0.8, "contest_objective": 0.9,
 }
 
-TANK = {        # Zac: engage with the body, peel allies with CC, soak; low farm
-    "engage_cc": 1.7,       # initiation is the tank's job
-    "peel_carry": 1.3,      # also peels (body-block + CC)
-    "group": 1.3,           # frontlines WITH the team
-    "focus_fire": 0.7,
-    "chase": 0.8,
-    "ward_objective": 0.8,
-    "trade": 0.6,
-    "kite": 0.5,
-    "protect_low_ally": 0.0,
-    "farm": 0.5,
-    "follow_carry": 0.5,
-    "flee_low": 0.5,        # soaks damage, rarely flees
-    "recall": 0.7,
-    "disengage": 0.5,       # frontline: stays in, doesn't flee early
+TANK = {        # Zac: engage with the body, peel allies with CC, frontline
+    "cc_diver": 1.5,
+    "body_block": 1.4,
+    "collapse": 1.3,
+    "contest_objective": 1.2,
+    "group": 1.3,
+    "dive_carry": 1.2,
+    "protect_carry": 1.0,
+    "focus_target": 0.7,
+    "self_peel": 0.6,
+    "last_hit": 0.4, "push_wave": 0.6, "poke": 0.5, "auto_trade": 0.6,
+    "shield_ally": 0.0,
+    "ward": 0.6, "roam": 0.7,
+    "flee": 0.5, "disengage": 0.5, "recall": 0.7, "hold": 0.5,
+    "secure_objective": 1.0, "trade_objective": 0.6,
 }
 
 ARCHETYPES = {
-    "ENCHANTER": ENCHANTER,
-    "MAGE": MAGE,
-    "MARKSMAN": MARKSMAN,
-    "BRUISER": BRUISER,
-    "TANK": TANK,
+    "ENCHANTER": ENCHANTER, "MAGE": MAGE, "MARKSMAN": MARKSMAN,
+    "BRUISER": BRUISER, "TANK": TANK,
 }
 
-# which archetype each roster champion plays as
 CHAMPION_ARCHETYPE = {
-    "Sona": "ENCHANTER",
-    "Lulu": "ENCHANTER",
-    "Ryze": "MAGE",
-    "Jax":  "BRUISER",
-    "Zac":  "TANK",
+    "Sona": "ENCHANTER", "Lulu": "ENCHANTER", "Ryze": "MAGE",
+    "Jax": "BRUISER", "Zac": "TANK",
 }
 
 
