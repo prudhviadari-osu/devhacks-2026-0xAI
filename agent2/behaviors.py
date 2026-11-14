@@ -130,12 +130,18 @@ class Poke(Capability):
             return None
         slot = _dmg_slot(me)
         e = _nearest(me, p.enemies())
-        if not slot or not e or not _in_range(me, e, me.abilities[slot].range):
+        if not slot or not e:
             return None
-        fav = me.hp_frac - e.hp_frac
-        return Proposal((0.55 + 0.4 * max(0, fav)) * self.w(w),
-                        Cast(slot, target=e.name), self.name,
-                        f"poke {e.name}", target=e.name)
+        if _in_range(me, e, me.abilities[slot].range):
+            fav = me.hp_frac - e.hp_frac
+            return Proposal((0.9 + 0.4 * max(0, fav)) * self.w(w),
+                            Cast(slot, target=e.name), self.name,
+                            f"poke {e.name}", target=e.name)
+        # a mage out of poke range steps in to get it (keeps poke relevant)
+        if p.dist(me, e) < me.abilities[slot].range * 1.6:
+            return Proposal(0.6 * self.w(w), Move(e.x, e.y), self.name,
+                            f"step in to poke {e.name}", target=e.name)
+        return None
 
 
 class AutoTrade(Capability):
@@ -170,14 +176,19 @@ class CCTheDiver(Capability):
         carry = _lowest(carries)
         threat = _nearest(carry, p.enemies())
         slot = _best_cc_slot(me)
-        if not threat or not slot or p.dist(threat, carry) > 1000:
+        # looser trigger: a diver within 1600 of the carry is worth CCing, and if
+        # the diver isn't in range yet, move toward it (so this fires more often)
+        if not threat or not slot or p.dist(threat, carry) > 1600:
             return None
         if _in_range(me, threat, me.abilities[slot].range):
-            return Proposal(1.5 * self.w(w), Cast(slot, target=threat.name),
+            # strong signature peel — should reliably beat a plain body_block
+            return Proposal(1.9 * self.w(w), Cast(slot, target=threat.name),
                             self.name, f"CC diver {threat.name}",
                             comms=f"Stunning {threat.name} off you!",
                             target=threat.name)
-        return None
+        # not in CC range yet -> close the gap to land it
+        return Proposal(1.2 * self.w(w), Move(threat.x, threat.y), self.name,
+                        f"move to CC {threat.name}", target=threat.name)
 
 
 class ShieldAlly(Capability):
@@ -190,16 +201,18 @@ class ShieldAlly(Capability):
         slot = _support_slot(me)
         if not slot:
             return None
-        hurt = [a for a in p.allies() if a.hp_frac < 0.65]
+        # shield proactively (under 80%, not just when badly hurt) so the
+        # enchanter signature actually fires in fights
+        hurt = [a for a in p.allies() if a.hp_frac < 0.8]
         if not hurt:
             return None
         tgt = _lowest(hurt)
         if _in_range(me, tgt, me.abilities[slot].range):
-            return Proposal((0.7 + (1 - tgt.hp_frac)) * self.w(w),
+            return Proposal((1.1 + (1 - tgt.hp_frac)) * self.w(w),
                             Cast(slot, target=tgt.name), self.name,
                             f"shield {tgt.name}", comms=f"Shield on you {tgt.name}!",
                             target=tgt.name)
-        return Proposal(0.55 * self.w(w), Move(tgt.x, tgt.y), self.name,
+        return Proposal(0.6 * self.w(w), Move(tgt.x, tgt.y), self.name,
                         f"move to shield {tgt.name}", target=tgt.name)
 
 
@@ -219,7 +232,9 @@ class BodyBlock(Capability):
             return None
         bx = carry.x + (threat.x - carry.x) * 0.25
         by = carry.y + (threat.y - carry.y) * 0.25
-        return Proposal((0.5 + (1 - carry.hp_frac)) * self.w(w),
+        # body_block is the FALLBACK peel (when you can't CC); score it below
+        # cc_diver so a champ with CC up stuns instead of just walking in the way
+        return Proposal((0.4 + 0.6 * (1 - carry.hp_frac)) * self.w(w),
                         Move(bx, by), self.name,
                         f"body-block for {carry.name}", target=carry.name,
                         comms=f"Blocking for you {carry.name}!")
@@ -489,7 +504,10 @@ class Flee(Capability):
         threat = _nearest(me, p.enemies())
         if not threat:
             return None
-        return Proposal(1.8 * self.w(w),
+        # scale urgency with how low we are, so flee doesn't blanket-dominate the
+        # RETREAT phase — a champ at 24% flees less hard than one at 5%
+        urgency = 0.8 + 1.4 * (1 - me.hp_frac)
+        return Proposal(urgency * self.w(w),
                         Move(me.x + (me.x - threat.x), me.y + (me.y - threat.y)),
                         self.name, "flee straight back", comms="Backing out!")
 
