@@ -154,8 +154,14 @@ def main() -> None:
     world, controllers, human, bot = build_scene(human_plays)
     _WORLD_REF = world
 
-    from view.render import Renderer
-    renderer = Renderer(human_name="Sona" if human_plays else None)
+    # animated renderer by default (textured map + sprites + smooth movement);
+    # RENDERER=basic falls back to the simple shape renderer.
+    if os.environ.get("RENDERER", "animated") == "basic":
+        from view.render import Renderer
+        renderer = Renderer(human_name="Sona" if human_plays else None)
+    else:
+        from view.animated import AnimatedRenderer as Renderer
+        renderer = Renderer(human_name="Sona" if human_plays else None)
     clock = renderer.pygame.time.Clock()
 
     running = True
