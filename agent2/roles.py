@@ -15,18 +15,20 @@ SUPPORT = {
     "engage_cc": 0.7,
     "trade": 0.5,
     "kite": 0.6,
+    "farm": 0.2,            # supports don't take CS
     "follow_carry": 1.0,
     "recall": 1.0,
     "disengage": 1.1,
 }
 
-CARRY = {          # ADC / mid: deal damage, kite, trade; don't dive
-    "kite": 1.5,
-    "trade": 1.3,
+CARRY = {          # ADC / mid: FARM to scale, kite, trade; don't dive
+    "farm": 1.4,           # carries prioritize CS/gold
+    "kite": 1.3,
+    "trade": 1.2,
     "engage_cc": 0.6,
     "peel_carry": 0.3,
     "ward_objective": 0.6,
-    "follow_carry": 0.4,
+    "follow_carry": 0.3,
     "recall": 1.0,
     "disengage": 1.2,
 }
@@ -35,6 +37,7 @@ DIVER = {          # assassin / bruiser: hunt the carry, engage hard
     "engage_cc": 1.8,
     "kite": 1.2,
     "trade": 1.1,
+    "farm": 0.8,           # farms when no kill is available
     "peel_carry": 0.2,
     "ward_objective": 0.4,
     "follow_carry": 0.2,

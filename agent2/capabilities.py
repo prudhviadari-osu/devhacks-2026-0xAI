@@ -216,6 +216,38 @@ class Disengage(Capability):
                         "disengage — losing this", comms="Backing off, too risky.")
 
 
+class Farm(Capability):
+    """Last-hit a killable enemy minion for gold. The core laning micro-decision.
+
+    Scores higher when: a minion is about to die (good last-hit), no ally is in
+    danger, and this champion is a farming role. Lower for supports (who should
+    prioritize peel/ward over CS).
+    """
+    name = "farm"
+
+    def propose(self, p, weights):
+        me = p.me
+        mm = getattr(p.world, "minions", None)
+        if mm is None:
+            return None
+        killable = mm.nearest_killable(me, me.team)
+        if not killable:
+            return None
+        from model.world import LastHit
+        # a minion we can one-shot (hp <= our AD) is a clean last-hit -> high value
+        one_shot = killable.hp <= me.stats.ad
+        in_range = p.dist(me, killable) <= me.stats.attack_range
+        base = 0.9 if (one_shot and in_range) else 0.5
+        # don't farm if an ally is being dived (peel will outscore anyway, but
+        # lower farm so it yields cleanly)
+        return Proposal(base * self.w(weights, 1.0),
+                        LastHit(killable.uid) if in_range
+                        else Move(killable.x, killable.y),
+                        self.name,
+                        f"last-hit {killable.kind} (hp {killable.hp:.0f})",
+                        target=f"minion:{killable.uid}")
+
+
 class FollowCarry(Capability):
     """Default presence: stay near the most valuable ally. Always proposes low."""
     name = "follow_carry"
@@ -233,6 +265,6 @@ class FollowCarry(Capability):
 
 # the default broad repertoire (order doesn't matter; utility decides)
 DEFAULT_REPERTOIRE = [
-    PeelCarry(), EngageCC(), KiteAttack(), Trade(),
+    PeelCarry(), EngageCC(), KiteAttack(), Trade(), Farm(),
     WardObjective(), Recall(), Disengage(), FollowCarry(),
 ]
