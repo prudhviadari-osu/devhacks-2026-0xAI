@@ -52,15 +52,16 @@ def build_scene(human_plays_sona: bool):
         sona_ctrl = UtilityBotController()   # versatile utility brain (default)
     else:
         sona_ctrl = BotController()          # old planner+tree brain
-    # every bot champion uses the utility brain so behavior is sensible, not a
-    # mid-lane suicide blob. (Per-role weights = next step: divers aggressive,
-    # supports protective. For now all share neutral weights.)
+    # every bot champion uses the utility brain with ROLE WEIGHTS so a real
+    # fight happens: divers (Zac/Jax) hunt carries, carries kite/trade, Sona
+    # peels. This is what gives the screen visible game behavior.
+    from agent2.roles import weights_for
     controllers = {
         "Sona": sona_ctrl,
-        "Lulu": UtilityBotController(),
-        "Ryze": UtilityBotController(),
-        "Zac":  UtilityBotController(),
-        "Jax":  UtilityBotController(),
+        "Lulu": UtilityBotController(weights_for("ADC")),
+        "Ryze": UtilityBotController(weights_for("MID")),
+        "Zac":  UtilityBotController(weights_for("JUNGLE")),
+        "Jax":  UtilityBotController(weights_for("TOP")),
     }
     return world, controllers, human, (sona_ctrl if not human_plays_sona else None)
 
@@ -176,6 +177,15 @@ def main() -> None:
         actions = {name: ctrl.decide(world, name)
                    for name, ctrl in controllers.items()}
         world.step(actions)
+
+        # feed the AI overlay panel: each controller's current decision + why
+        ai_info = {}
+        for name, ctrl in controllers.items():
+            ai_info[name] = {
+                "priority": getattr(ctrl, "last_priority", "human"),
+                "considered": getattr(ctrl, "last_considered", []),
+            }
+        renderer.ai_info = ai_info
 
         callout = bot.last_comms if bot else ""
         priority = bot.last_priority if bot else ""

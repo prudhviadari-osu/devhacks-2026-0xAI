@@ -61,6 +61,8 @@ class AnimatedRenderer:
 
         # smooth movement: remember last drawn screen pos per champ
         self._draw_pos: dict[str, tuple[float, float]] = {}
+        # per-champion AI decision info for the overlay panel (set by game loop)
+        self.ai_info: dict[str, dict] = {}
 
     def _load_tmx(self):
         path = os.path.join(os.path.dirname(__file__), "..", "assets", "rift.tmx")
@@ -93,16 +95,81 @@ class AnimatedRenderer:
         self._text("DRAGON" + (" UP" if up else f" {world.objective.spawns_in:.0f}s"),
                    ox - 24, oy + 14, DRAGON if up else GREY)
 
+        # attack / cast / heal effect lines (from this tick's world.fx)
+        self._draw_effects(pg, world)
+
         for c in world.champions:
             self._draw_champion(pg, c, dt)
 
+        # --- UI overlay ---
+        self._draw_ai_panel(pg, world)          # right: what each AI is doing
+        self._draw_combat_feed(pg, world)       # bottom: recent events
         if priority:
-            self._text(f"priority: {priority}", 12, 12, WHITE, big=True)
+            self._text(f"YOU/BOT: {priority}", 12, 12, WHITE, big=True)
         if callout:
-            self._text(f"\u201c{callout}\u201d", 12, 36, HUMAN, big=True)
-        self._text(f"t={world.time:.1f}s", WIN_W - 90, 12, GREY)
+            self._text(f"\u201c{callout}\u201d", 12, 34, HUMAN, big=True)
+        self._text(f"t={world.time:.1f}s", WIN_W - 150, 12, GREY)
         pg.display.flip()
         self.clock.tick(60)
+
+    # ---- visible attacks/casts: draw a line from src to dst, colored by kind ----
+    def _draw_effects(self, pg, world) -> None:
+        for fx in getattr(world, "fx", []):
+            src = world.by_name.get(fx["src"])
+            dst = world.by_name.get(fx["dst"])
+            if not src or not dst:
+                continue
+            a = self._draw_pos.get(src.name) or self.to_screen(src.x, src.y)
+            b = self.to_screen(dst.x, dst.y)
+            if fx["kind"] == "auto":
+                pg.draw.line(self.screen, (230, 230, 180), a, b, 2)
+            elif fx["kind"] == "heal":
+                pg.draw.line(self.screen, (120, 240, 160), a, b, 3)
+                pg.draw.circle(self.screen, (120, 240, 160), b, 16, 2)
+            else:  # ability cast
+                col = (240, 220, 90) if fx["cc"] else (200, 120, 240)
+                pg.draw.line(self.screen, col, a, b, 3)
+                pg.draw.circle(self.screen, col, b, 14, 2)
+                if fx["slot"]:
+                    self._text(fx["slot"], b[0] - 4, b[1] - 24, col)
+
+    # ---- right-side panel: every champion's current AI decision ----
+    def _draw_ai_panel(self, pg, world) -> None:
+        panel_w = 230
+        x0 = WIN_W - panel_w
+        s = pg.Surface((panel_w, WIN_H), pg.SRCALPHA)
+        s.fill((10, 12, 18, 200))
+        self.screen.blit(s, (x0, 0))
+        y = 40
+        self._text("AI DECISIONS", x0 + 12, 14, WHITE, big=True)
+        for name, info in self.ai_info.items():
+            ch = world.by_name.get(name)
+            if not ch:
+                continue
+            team_col = ALLY if ch.team == "ALLY" else ENEMY
+            status = "" if ch.alive else f"  dead {ch.respawn_timer:.0f}s"
+            self._text(f"{name}{status}", x0 + 12, y, team_col)
+            self._text(f"\u2192 {info.get('priority','')}", x0 + 20, y + 15,
+                       WHITE)
+            # top considered options with scores (the "why")
+            yy = y + 30
+            for cap, sc in info.get("considered", [])[:3]:
+                self._text(f"   {cap} {sc}", x0 + 20, yy, GREY)
+                yy += 13
+            y = yy + 8
+
+    # ---- bottom strip: last few combat events ----
+    def _draw_combat_feed(self, pg, world) -> None:
+        feed_h = 90
+        s = pg.Surface((WIN_W - 240, feed_h), pg.SRCALPHA)
+        s.fill((10, 12, 18, 190))
+        self.screen.blit(s, (0, WIN_H - feed_h))
+        self._text("COMBAT", 10, WIN_H - feed_h + 4, WHITE)
+        recent = [l for l in world.log
+                  if any(k in l for k in ("hits", "autos", "stuns", "died",
+                                          "respawned", "heals"))][-5:]
+        for i, line in enumerate(recent):
+            self._text(line, 10, WIN_H - feed_h + 20 + i * 14, (210, 210, 220))
 
     def _draw_background(self, pg) -> None:
         if self.tmx is not None:

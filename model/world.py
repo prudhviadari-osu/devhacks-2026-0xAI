@@ -69,6 +69,10 @@ class World:
         self.time = 0.0
         self.objective = Objective("DRAGON", *DRAGON_POS, spawns_in=dragon_spawn)
         self.log: list[str] = []
+        # visual effects produced THIS tick, for the renderer to draw.
+        # each: {"kind": "auto"|"cast"|"heal", "src": name, "dst": name,
+        #        "slot": str|None, "cc": bool}
+        self.fx: list[dict] = []
 
     # ---- queries controllers use ----
     def get(self, name: str) -> Champion:
@@ -83,6 +87,7 @@ class World:
     # ---- the tick: apply each champion's action, then advance timers ----
     def step(self, actions: dict[str, Action]) -> None:
         self.time += TICK
+        self.fx = []   # clear last tick's effects; this tick refills it
         for c in self.champions:
             c.tick(TICK)
             self._handle_respawn(c)
@@ -141,6 +146,8 @@ class World:
         # attack cooldown = 1 / attack_speed
         champ.attack_cd = 1.0 / max(0.1, champ.stats.attack_speed)
         self.log.append(f"{champ.name} autos {target.name} for {dealt:.0f}")
+        self.fx.append({"kind": "auto", "src": champ.name,
+                        "dst": target.name, "slot": None, "cc": False})
 
     def _cast(self, champ: Champion, cast: Cast) -> None:
         ab = champ.abilities.get(cast.slot)
@@ -156,6 +163,7 @@ class World:
             return
 
         champ.cooldowns[cast.slot] = ab.cd(rank)
+        did_cc = False
 
         # damage
         dmg = ab.dmg(rank)  # (AP/AD ratios wire in with items; 0 bonus for v1)
@@ -168,6 +176,7 @@ class World:
         # crowd control
         if ab.cc_type and target and target.team != champ.team:
             target.cc_remaining = max(target.cc_remaining, ab.cc(rank))
+            did_cc = True
             self.log.append(
                 f"{champ.name} {ab.slot} {ab.cc_type}s {target.name} "
                 f"for {ab.cc(rank):.2f}s")
@@ -178,6 +187,12 @@ class World:
             ally = target if (target and target.team == champ.team) else champ
             ally.heal(heal_amt)
             self.log.append(f"{champ.name} {ab.slot} heals {ally.name} {heal_amt:.0f}")
+            self.fx.append({"kind": "heal", "src": champ.name,
+                            "dst": ally.name, "slot": cast.slot, "cc": False})
+
+        if target:
+            self.fx.append({"kind": "cast", "src": champ.name, "dst": target.name,
+                            "slot": cast.slot, "cc": did_cc})
 
     # ---- objective ----
     def objective_up(self) -> bool:
