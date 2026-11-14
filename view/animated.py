@@ -98,6 +98,9 @@ class AnimatedRenderer:
         # attack / cast / heal effect lines (from this tick's world.fx)
         self._draw_effects(pg, world)
 
+        # minions (small dots in team colors with a thin hp bar)
+        self._draw_minions(pg, world)
+
         for c in world.champions:
             self._draw_champion(pg, c, dt)
 
@@ -112,12 +115,43 @@ class AnimatedRenderer:
         pg.display.flip()
         self.clock.tick(60)
 
+    # ---- minions: small team-colored squares with a tiny hp bar ----
+    def _draw_minions(self, pg, world) -> None:
+        mm = getattr(world, "minions", None)
+        if mm is None:
+            return
+        for m in mm.minions:
+            if not m.alive:
+                continue
+            mx, my = self.to_screen(m.x, m.y)
+            col = (70, 130, 200) if m.team == "ALLY" else (200, 80, 80)
+            # siege minions a touch bigger/brighter
+            size = 5 if m.kind == "siege" else 3
+            pg.draw.rect(self.screen, col, (mx - size, my - size,
+                                            size * 2, size * 2))
+            # tiny hp bar when damaged (so last-hit windows are visible)
+            if m.hp_frac < 1.0:
+                w = 10
+                pg.draw.rect(self.screen, (40, 40, 40),
+                             (mx - w // 2, my - size - 4, w, 2))
+                pg.draw.rect(self.screen, (90, 210, 120),
+                             (mx - w // 2, my - size - 4, int(w * m.hp_frac), 2))
+
     # ---- visible attacks/casts: draw a line from src to dst, colored by kind ----
     def _draw_effects(self, pg, world) -> None:
         for fx in getattr(world, "fx", []):
             src = world.by_name.get(fx["src"])
-            dst = world.by_name.get(fx["dst"])
-            if not src or not dst:
+            if not src:
+                continue
+            dst_name = fx["dst"]
+            # target may be a champion OR a minion ("minion:<uid>")
+            if isinstance(dst_name, str) and dst_name.startswith("minion:"):
+                uid = int(dst_name.split(":", 1)[1])
+                mm = getattr(world, "minions", None)
+                dst = next((m for m in mm.minions if m.uid == uid), None) if mm else None
+            else:
+                dst = world.by_name.get(dst_name)
+            if not dst:
                 continue
             a = self._draw_pos.get(src.name) or self.to_screen(src.x, src.y)
             b = self.to_screen(dst.x, dst.y)

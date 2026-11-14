@@ -279,8 +279,134 @@ class FollowCarry(Capability):
                         f"stay near {carry.name}")
 
 
+class FocusFire(Capability):
+    """Teamfight intelligence: pile damage onto the lowest-HP enemy so the team
+    kills something rather than spreading damage. Scores high when an enemy is
+    low and reachable."""
+    name = "focus_fire"
+
+    def propose(self, p, weights):
+        me = p.me
+        enemies = p.enemies()
+        if not enemies:
+            return None
+        weakest = min(enemies, key=lambda e: e.hp_frac)
+        if weakest.hp_frac > 0.5:
+            return None   # nobody worth collapsing on yet
+        d = p.dist(me, weakest)
+        # the lower the target and the closer, the higher the value
+        score = (1.0 - weakest.hp_frac) * 1.3
+        if d <= me.stats.attack_range:
+            return Proposal(score * self.w(weights, 1.0), Auto(weakest.name),
+                            self.name, f"focus {weakest.name} ({weakest.hp_frac:.0%})",
+                            comms=f"Focus {weakest.name}!", target=weakest.name)
+        if d < 2500:
+            return Proposal(score * 0.8 * self.w(weights, 1.0),
+                            Move(weakest.x, weakest.y), self.name,
+                            f"close on low {weakest.name}", target=weakest.name)
+        return None
+
+
+class Chase(Capability):
+    """Pursue a fleeing low-HP enemy for the kill. Distinct from focus: this is
+    about not letting a kill escape. Avoid over-chasing into danger (survival
+    gate still applies)."""
+    name = "chase"
+
+    def propose(self, p, weights):
+        me = p.me
+        enemies = p.enemies()
+        if not enemies or me.hp_frac < 0.4:
+            return None
+        runners = [e for e in enemies if e.hp_frac < 0.35]
+        if not runners:
+            return None
+        tgt = min(runners, key=lambda e: p.dist(me, e))
+        d = p.dist(me, tgt)
+        if d > 3000:
+            return None   # too far, not worth the chase
+        score = (1.0 - tgt.hp_frac) * 1.1
+        return Proposal(score * self.w(weights, 0.8), Move(tgt.x, tgt.y),
+                        self.name, f"chase {tgt.name} for the kill",
+                        comms=f"Chasing {tgt.name}!", target=tgt.name)
+
+
+class ProtectLowAlly(Capability):
+    """Enchanter behavior: heal/shield the most-hurt nearby ally. Uses an ability
+    with a heal/shield value if available."""
+    name = "protect_low_ally"
+
+    def propose(self, p, weights):
+        me = p.me
+        allies = [a for a in p.allies() if a.hp_frac < 0.6]
+        if not allies:
+            return None
+        # find a heal/shield ability
+        slot = None
+        for s, ab in me.abilities.items():
+            has_support = (ab.heal[0] > 0 or ab.shield[0] > 0)
+            if has_support and me.ability_ready(s):
+                slot = s
+                break
+        if not slot:
+            return None
+        tgt = min(allies, key=lambda a: a.hp_frac)
+        if not _in_range(me, tgt, me.abilities[slot].range):
+            return Proposal(0.6 * self.w(weights, 1.0), Move(tgt.x, tgt.y),
+                            self.name, f"move to shield {tgt.name}", target=tgt.name)
+        score = (1.0 - tgt.hp_frac) * 1.4
+        return Proposal(score * self.w(weights, 1.0),
+                        Cast(slot, target=tgt.name), self.name,
+                        f"shield/heal {tgt.name}",
+                        comms=f"Shielding you, {tgt.name}!", target=tgt.name)
+
+
+class Group(Capability):
+    """Don't fight alone: rally toward the nearest ally when enemies are near but
+    the team is split. Encourages grouped play over solo dives."""
+    name = "group"
+
+    def propose(self, p, weights):
+        me = p.me
+        allies = p.allies()
+        enemies = p.enemies()
+        if not allies or not enemies:
+            return None
+        nearest_ally = _nearest(me, allies)
+        nearest_enemy = _nearest(me, enemies)
+        if not nearest_ally or not nearest_enemy:
+            return None
+        # alone (ally far) AND an enemy is near -> group up
+        if p.dist(me, nearest_ally) > 1800 and p.dist(me, nearest_enemy) < 2500:
+            return Proposal(0.75 * self.w(weights, 1.0),
+                            Move(nearest_ally.x, nearest_ally.y), self.name,
+                            f"group with {nearest_ally.name}",
+                            comms="Grouping up — don't fight alone.")
+        return None
+
+
+class FleeLow(Capability):
+    """Hard self-preservation: when critically low, run from the nearest threat
+    harder than Disengage (this outranks almost everything)."""
+    name = "flee_low"
+
+    def propose(self, p, weights):
+        me = p.me
+        if me.hp_frac > 0.2:
+            return None
+        enemies = p.enemies()
+        threat = _nearest(me, enemies) if enemies else None
+        if not threat or p.dist(me, threat) > 2000:
+            return None
+        bx = me.x + (me.x - threat.x)
+        by = me.y + (me.y - threat.y)
+        return Proposal(2.0 * self.w(weights, 1.0), Move(bx, by), self.name,
+                        "critically low — flee", comms="Low! Backing out now.")
+
+
 # the default broad repertoire (order doesn't matter; utility decides)
 DEFAULT_REPERTOIRE = [
     PeelCarry(), EngageCC(), KiteAttack(), Trade(), Farm(),
+    FocusFire(), Chase(), ProtectLowAlly(), Group(), FleeLow(),
     WardObjective(), Recall(), Disengage(), FollowCarry(),
 ]

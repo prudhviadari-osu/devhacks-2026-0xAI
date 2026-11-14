@@ -111,9 +111,10 @@ class UtilityAgent:
 
         return committed_prop
 
-    # risky = commits us toward enemies (engage / body-block / step-in)
+    # risky = commits us toward enemies (engage / body-block / chase / focus)
     def _is_risky(self, prop: Proposal) -> bool:
-        return prop.name in ("engage_cc", "peel_carry", "kite", "trade")
+        return prop.name in ("engage_cc", "peel_carry", "kite", "trade",
+                             "chase", "focus_fire")
 
     def _would_survive(self, p: Perception) -> bool:
         me = p.me
@@ -122,7 +123,8 @@ class UtilityAgent:
 
     def _best_safe(self, proposals: list[Proposal]) -> Proposal | None:
         for pr in proposals:
-            if pr.name in ("disengage", "recall", "ward_objective",
+            if pr.name in ("flee_low", "disengage", "recall", "group",
+                           "protect_low_ally", "ward_objective",
                            "follow_carry"):
                 return pr
         return None
