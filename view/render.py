@@ -57,7 +57,9 @@ class Renderer:
 
     def draw(self, world: World, callout: str = "", priority: str = "") -> None:
         pg = self.pygame
-        self.screen.fill(BG)
+        # map background (Summoner's Rift-style lanes/river/bases/jungle)
+        from view.sr_map import draw_map
+        draw_map(pg, self.screen, WIN_W, WIN_H)
 
         # objective
         ox, oy = self.to_screen(world.objective.x, world.objective.y)
