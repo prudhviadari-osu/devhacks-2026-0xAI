@@ -44,7 +44,13 @@ def build_scene(human_plays_sona: bool):
     world = World(champs, dragon_spawn=15.0)
 
     human = HumanController()
-    sona_ctrl = human if human_plays_sona else BotController()
+    if human_plays_sona:
+        sona_ctrl = human
+    elif os.environ.get("UTILITY", "1") != "0":
+        from controllers.utility_bot import UtilityBotController
+        sona_ctrl = UtilityBotController()   # new versatile brain (default)
+    else:
+        sona_ctrl = BotController()          # old planner+tree brain
     controllers = {
         "Sona": sona_ctrl,
         "Lulu": _carry_ai(),         # simple ally carry behavior
