@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from agent2.capabilities import DEFAULT_REPERTOIRE
+from agent2.behaviors import FULL_REPERTOIRE
 from agent2.capability import Capability, Perception, Proposal
 from model.world import Action, Idle, Move, World
 
@@ -37,7 +37,7 @@ class UtilityAgent:
 
     def __init__(self, repertoire: list[Capability] | None = None,
                  weights: dict[str, float] | None = None):
-        self.repertoire = repertoire or DEFAULT_REPERTOIRE
+        self.repertoire = repertoire or FULL_REPERTOIRE
         self.weights = weights or {}
         self.last: Decision | None = None
         self._committed: str | None = None   # name of current capability
@@ -45,8 +45,13 @@ class UtilityAgent:
 
     def decide(self, world: World, me_name: str) -> Decision:
         p = Perception(world, me_name)
+        from agent2.phases import detect_phase
+        phase = detect_phase(p)
+        self.phase = phase
         proposals: list[Proposal] = []
         for cap in self.repertoire:
+            if not cap.relevant_in(phase):
+                continue   # phase-gated: only relevant behaviors compete
             prop = cap.propose(p, self.weights)
             if prop is not None:
                 proposals.append(prop)

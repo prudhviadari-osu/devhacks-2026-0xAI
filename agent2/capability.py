@@ -52,11 +52,21 @@ class Perception:
 
 
 class Capability:
-    """Base class. Override propose(); return None to abstain this tick."""
+    """Base class. Override propose(); return None to abstain this tick.
+
+    `phases` declares which game phases this behavior competes in. The agent
+    gates capabilities by the current phase, so only a relevant subset competes
+    each tick (prevents 50 behaviors from thrashing). Empty = all phases.
+    """
     name = "capability"
+    phases: tuple = ()      # Phase values this behavior is relevant in; () = any
+    family = "misc"         # grouping for readability / the AI panel
 
     def propose(self, p: Perception, weights: dict[str, float]) -> Proposal | None:
         return None
+
+    def relevant_in(self, phase) -> bool:
+        return not self.phases or phase in self.phases
 
     def w(self, weights: dict[str, float], default: float = 1.0) -> float:
         """Role weight multiplier for this capability (1.0 if unweighted)."""
