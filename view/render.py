@@ -31,7 +31,14 @@ CC_COL = (240, 220, 90)
 
 class Renderer:
     def __init__(self, human_name: str | None = None):
-        import pygame
+        try:
+            import pygame
+        except ImportError as e:
+            raise ImportError(
+                "pygame is required to render the game. Install it with:\n"
+                "    pip install pygame\n"
+                "(the sim logic runs without it; only the View needs it.)"
+            ) from e
         self.pygame = pygame
         pygame.init()
         self.screen = pygame.display.set_mode((WIN_W, WIN_H))
@@ -66,19 +73,23 @@ class Renderer:
             cx, cy = self.to_screen(c.x, c.y)
             color = HUMAN if c.name == self.human_name else (
                 ALLY if c.team == "ALLY" else ENEMY)
-            # attack-range ring
-            pg.draw.circle(self.screen, (*color, 40),
-                           (cx, cy), self.scale(c.stats.attack_range), 1)
+            # attack-range ring (dimmed version of the champ color; no alpha
+            # tuple — pygame.draw.circle takes RGB only, RGBA crashes)
+            ring = tuple(int(ch * 0.35) for ch in color)
+            r_px = self.scale(c.stats.attack_range)
+            if r_px > 3:
+                pg.draw.circle(self.screen, ring, (cx, cy), r_px, 1)
             # body
-            pg.draw.circle(self.screen, color, (cx, cy), 10)
+            pg.draw.circle(self.screen, color, (cx, cy), 11)
+            pg.draw.circle(self.screen, WHITE, (cx, cy), 11, 1)  # outline
             if c.cc_remaining > 0:
-                pg.draw.circle(self.screen, CC_COL, (cx, cy), 13, 2)
+                pg.draw.circle(self.screen, CC_COL, (cx, cy), 15, 3)
             # name + level
-            self._text(f"{c.name} L{c.level}", cx - 24, cy - 30, WHITE)
+            self._text(f"{c.name} L{c.level}", cx - 26, cy - 32, WHITE)
             # hp / mana bars
-            self._bar(cx - 22, cy + 14, 44, 5, c.hp_frac, HP_FG)
+            self._bar(cx - 24, cy + 15, 48, 6, c.hp_frac, HP_FG)
             if c.stats.max_mp > 0:
-                self._bar(cx - 22, cy + 21, 44, 3, c.mp / c.stats.max_mp, MP_FG)
+                self._bar(cx - 24, cy + 23, 48, 3, c.mp / c.stats.max_mp, MP_FG)
 
         # bot callout HUD
         if priority:
@@ -106,3 +117,28 @@ class Renderer:
 
     def close(self) -> None:
         self.pygame.quit()
+
+
+def selftest() -> None:
+    """Render a few frames to an OFF-SCREEN surface (no window) to prove the
+    draw path doesn't crash. Run: `python3 -m view.render` """
+    import os
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")  # headless
+    from model.champion import Champion
+    from model.world import World, Idle
+    champs = [
+        Champion("Sona", "ALLY", "SUPPORT", level=6, x=5000, y=5000),
+        Champion("Lulu", "ALLY", "ADC", level=6, x=5200, y=4900),
+        Champion("Zac", "ENEMY", "JUNGLE", level=6, x=9000, y=9000),
+    ]
+    w = World(champs, dragon_spawn=5)
+    r = Renderer(human_name="Sona")
+    for _ in range(10):
+        w.step({c.name: Idle() for c in champs})
+        r.draw(w, callout="Peeling for you — Lulu, hold!", priority="peel_carry")
+    r.close()
+    print("render self-test OK: 10 frames drawn headless, no crash")
+
+
+if __name__ == "__main__":
+    selftest()

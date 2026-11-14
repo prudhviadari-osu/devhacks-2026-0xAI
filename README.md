@@ -55,6 +55,16 @@ game.py       the loop: input -> controllers -> world.step -> render
 **Scope (v1 = a):** movement + auto-attacks + one ability + growth + mitigation.
 Next (b): all four abilities per champion (data already present).
 
+**Items & leveling (planned, additive — not a rewrite):** the stat engine already
+accepts `level` + `bonus_*` stats and ability `dmg()` already takes AP/AD ratios.
+So items = an `Inventory` summing Data-Dragon item stats into those bonuses; XP
+= a system that grants levels/ability ranks from minions/kills. The mitigation
+formula, growth curve, ability data, MVC split, and the utility bot are all
+unchanged by this — it layers on top.
+
+**Rendering:** `python3 -m view.render` runs a headless draw self-test (no window)
+to confirm the draw path works before you deal with a display.
+
 Run it (on a machine with a display):
 
 ```bash
