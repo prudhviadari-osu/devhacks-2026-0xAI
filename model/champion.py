@@ -85,11 +85,30 @@ class Champion:
         self.hp = self.stats.max_hp
         self.mp = self.stats.max_mp
         self.cooldowns = {"Q": 0.0, "W": 0.0, "E": 0.0, "R": 0.0}
+        # respawn: remember where this champ started (its base) and death timer
+        self.spawn_x = self.x
+        self.spawn_y = self.y
+        self.respawn_timer = 0.0        # seconds until revive (0 = alive)
 
     # ---- queries ----
     @property
     def alive(self) -> bool:
         return self.hp > 0.0
+
+    @property
+    def dead(self) -> bool:
+        return self.hp <= 0.0
+
+    def respawn(self) -> None:
+        """Revive at base, full HP/mana, cooldowns reset."""
+        self.hp = self.stats.max_hp
+        self.mp = self.stats.max_mp
+        self.x, self.y = self.spawn_x, self.spawn_y
+        self.cc_remaining = 0.0
+        self.attack_cd = 0.0
+        self.respawn_timer = 0.0
+        for k in self.cooldowns:
+            self.cooldowns[k] = 0.0
 
     @property
     def hp_frac(self) -> float:

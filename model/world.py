@@ -85,6 +85,7 @@ class World:
         self.time += TICK
         for c in self.champions:
             c.tick(TICK)
+            self._handle_respawn(c)
         self.objective.spawns_in = max(0.0, self.objective.spawns_in - TICK)
 
         for name, action in actions.items():
@@ -92,6 +93,22 @@ class World:
             if champ is None or not champ.alive or champ.cc_remaining > 0:
                 continue
             self._apply(champ, action)
+
+    def _respawn_time(self) -> float:
+        """League-like scaling respawn: longer as the game goes on."""
+        # simple, readable curve: ~8s early, growing with match time
+        return min(45.0, 6.0 + self.time * 0.02)
+
+    def _handle_respawn(self, c: Champion) -> None:
+        if c.dead:
+            if c.respawn_timer <= 0.0:
+                c.respawn_timer = self._respawn_time()   # just died -> start timer
+                self.log.append(f"{c.name} died (respawn in {c.respawn_timer:.0f}s)")
+            else:
+                c.respawn_timer = max(0.0, c.respawn_timer - TICK)
+                if c.respawn_timer <= 0.0:
+                    c.respawn()
+                    self.log.append(f"{c.name} respawned")
 
     def _apply(self, champ: Champion, action: Action) -> None:
         if isinstance(action, Move):
@@ -110,6 +127,9 @@ class World:
         step = min(champ.stats.move_speed * TICK, d)   # real move speed / sec
         champ.x += dx / d * step
         champ.y += dy / d * step
+        # keep champions on the map (defensive clamp)
+        champ.x = max(0.0, min(MAP_SIZE, champ.x))
+        champ.y = max(0.0, min(MAP_SIZE, champ.y))
 
     def _auto(self, champ: Champion, target_name: str) -> None:
         target = self.by_name.get(target_name)
