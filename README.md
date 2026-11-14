@@ -69,10 +69,17 @@ Run it (on a machine with a display):
 
 ```bash
 pip install pygame
-python3 game.py            # you play Sona
-HUMAN=0 python3 game.py    # bot plays Sona, you watch
+HUMAN=0 python3 game.py                       # watch the bots (default: dive scenario)
+SCENARIO=teamfight HUMAN=0 python3 game.py    # a specific demo scenario
+python3 game.py                               # you play the scenario's hero
 ```
 Controls: right-click = move, left-click a champion = auto-attack, Q/W/E/R = cast.
+
+**Demo scenarios** (`SCENARIO=...`), each showcasing a behavior family:
+`dive` (peel), `farm` (last-hitting), `teamfight` (focus/protect/reposition),
+`objective` (secure/contest/ward), `skirmish` (trade/engage), `retreat`
+(flee/disengage/recall), `poke` (poke/kite). `HUMAN_CHAMP=Name` to play a
+specific champion; `HUMAN=0` for all-bots.
 
 ## Transition to an Overwolf overlay (later)
 

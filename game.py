@@ -33,45 +33,37 @@ from model.world import Auto, Cast, Idle, Move, World, dist, MAP_SIZE
 TICK_HZ = 30  # frames per second
 
 
-def build_scene(human_plays_sona: bool):
-    # Two squads facing off near mid, close enough that SKIRMISH/TEAMFIGHT phases
-    # trigger and the archetypes actually fight — not so far they drift into a
-    # passive LANING stalemate. Dragon up early to pull them together.
-    champs = [
-        # ally squad (lower-left of mid)
-        Champion("Lulu", "ALLY", "ADC", level=6, x=6800, y=6800),
-        Champion("Sona", "ALLY", "SUPPORT", level=6, x=6600, y=7000),
-        Champion("Ryze", "ALLY", "MID", level=6, x=7000, y=6600),
-        # enemy squad (upper-right of mid) — within skirmish range of allies
-        Champion("Zac",  "ENEMY", "JUNGLE", level=6, x=8000, y=8000),
-        Champion("Jax",  "ENEMY", "TOP", level=6, x=8200, y=7800),
-    ]
-    world = World(champs, dragon_spawn=5.0)
+def build_scene(human_plays):
+    """Build the selected demo scenario (SCENARIO env var; default 'dive').
 
+    Each champion gets its archetype-profiled utility brain. One champion may be
+    human-controlled: the scenario names a default human champ, overridable with
+    HUMAN_CHAMP. HUMAN=0 makes it all-bots (best for watching behaviors).
+    """
+    import scenarios
+    from agent2.profiles import profile_for_champion
     from controllers.utility_bot import UtilityBotController
 
-    from agent2.profiles import profile_for_champion
+    scenario_name = os.environ.get("SCENARIO", "dive")
+    champs, dragon_spawn, desc, default_human = scenarios.get(scenario_name)
+    world = World(champs, dragon_spawn=dragon_spawn)
+    print(f"[scenario: {scenario_name}] {desc}")
 
+    human_champ = os.environ.get("HUMAN_CHAMP", default_human) if human_plays else None
     human = HumanController()
-    if human_plays_sona:
-        sona_ctrl = human
-    elif os.environ.get("UTILITY", "1") != "0":
-        # Sona plays as her enchanter archetype
-        sona_ctrl = UtilityBotController(profile_for_champion("Sona"))
-    else:
-        sona_ctrl = BotController()          # old planner+tree brain
-    # every bot champion plays by its CHAMPION ARCHETYPE profile, so they feel
-    # distinct: Sona/Lulu enchanters, Ryze a mage, Jax a bruiser, Zac a tank —
-    # not all support-flavored. This also stops the one-note peel/kite loop.
-    from agent2.profiles import profile_for_champion
-    controllers = {
-        "Sona": sona_ctrl,
-        "Lulu": UtilityBotController(profile_for_champion("Lulu")),
-        "Ryze": UtilityBotController(profile_for_champion("Ryze")),
-        "Zac":  UtilityBotController(profile_for_champion("Zac")),
-        "Jax":  UtilityBotController(profile_for_champion("Jax")),
-    }
-    return world, controllers, human, (sona_ctrl if not human_plays_sona else None)
+
+    controllers = {}
+    for ch in champs:
+        if human_champ and ch.name == human_champ:
+            controllers[ch.name] = human
+        else:
+            controllers[ch.name] = UtilityBotController(
+                profile_for_champion(ch.name))
+
+    # which controller's decisions drive the HUD callout (a bot, if one exists)
+    hud_bot = next((controllers[ch.name] for ch in champs
+                    if ch.name != human_champ), None)
+    return world, controllers, human, hud_bot
 
 
 # --- lightweight scripted AIs for the non-hero champions (placeholder brains) ---
@@ -163,14 +155,18 @@ def main() -> None:
     world, controllers, human, bot = build_scene(human_plays)
     _WORLD_REF = world
 
+    # which champion (if any) is human-controlled -> highlight it in the view
+    human_name = next((name for name, ctrl in controllers.items()
+                       if ctrl is human), None) if human_plays else None
+
     # animated renderer by default (textured map + sprites + smooth movement);
     # RENDERER=basic falls back to the simple shape renderer.
     if os.environ.get("RENDERER", "animated") == "basic":
         from view.render import Renderer
-        renderer = Renderer(human_name="Sona" if human_plays else None)
+        renderer = Renderer(human_name=human_name)
     else:
         from view.animated import AnimatedRenderer as Renderer
-        renderer = Renderer(human_name="Sona" if human_plays else None)
+        renderer = Renderer(human_name=human_name)
     clock = renderer.pygame.time.Clock()
 
     running = True
