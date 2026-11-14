@@ -24,6 +24,36 @@ behavior trace* demo. So:
   is the integratability story: dropping into Riot's engine is one more source
   behind the same interface.
 
+## How it decides who to help (triage)
+
+Every tick the bot scores each ally (and each objective) on ONE scale, and helps
+the highest. No hand-ranked priority list — the situation decides.
+
+```
+time_to_die   = ally_hp / effective_damage_rate     # secs until they die
+time_to_reach = distance_to_ally / my_move_speed     # secs for me to arrive
+reachable     = time_to_reach < time_to_die          # can I get there in time?
+threat        = low_hp x (enemies near/approaching) x urgency
+reachability  = reachable ? 1/(1+distance) : ~0      # distance nudge + hard cutoff
+help_score    = threat x reachability
+```
+
+- **Predictive, not reactive**: `effective_damage_rate` includes *anticipated*
+  burst from an enemy closing on the ally, so the bot peels *before* the dive
+  lands instead of after (a support that waits for HP to drop reacts too late).
+- **Reachability cutoff**: an ally dying across the map scores ~0 because
+  `time_to_reach > time_to_die`, so the bot helps someone nearby or takes the
+  objective instead — the "don't run across the map and lose everyone" rule.
+- **Lean support**: an endangered, reachable ally outranks aggression/objectives.
+
+## Contribute, don't throw (the survival gate)
+
+The user's rule: on its own the bot still plays actively, but it must not make
+plays that throw its life for nothing. So after choosing an action, a **survival
+gate** checks a risky commit (dive-in CC, body-block): if the bot would die for
+no gain, it DOWNGRADES to the best *safe* contribution (zone an objective,
+reposition) rather than either feeding OR going passive.
+
 ## Architecture
 
 ```

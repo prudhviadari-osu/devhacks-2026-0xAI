@@ -22,9 +22,9 @@ class SupportAgent:
         self.health = health
 
     def act(self, gs: GameState) -> BotOutput:
-        priority, plan_src = self.planner.decide(gs)
-        out = self.controller.choose(gs, priority)
-        out.trace.insert(0, f"plan_src={plan_src}")
+        decision = self.planner.decide(gs)
+        out = self.controller.choose(gs, decision)
+        out.trace.insert(0, f"plan_src={decision.source}")
 
         # circuit breaker: trip only if the policy collapsed AND the outcome
         # (carry survival) is worsening. Holding one correct action is healthy.

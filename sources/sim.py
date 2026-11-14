@@ -131,9 +131,19 @@ class SupportSim:
         # apply the bot's support action (may CC the assassin / body-block)
         self._apply_action(me, action, target, adc, zed)
 
+        # a stunned diver is a FAILED dive: it got peeled, so it backs off and
+        # the attempt resets. This is the payoff for a well-timed peel/CC.
+        if zed.cc_remaining > 0.0 and getattr(self, "_diving", False):
+            self._diving = False
+            self._dive_cooldown = 8.0
+            zed.x, zed.y = 0.70, 0.70  # knocked/forced back to its start
+
         # resolve assassin damage: if it's on the carry and NOT crowd-controlled,
-        # it bursts. A body-block (support between zed and adc) also soaks it.
-        blocked = _dist(me, adc) < 0.06 and _dist(me, zed) < 0.14
+        # it bursts. A body-block only counts if the support deliberately
+        # positions BETWEEN the diver and the carry (the PEEL action).
+        between = (_dist(me, adc) < 0.06
+                   and _dist(me, zed) < _dist(adc, zed))  # me on the zed side
+        blocked = action == "PEEL" and between
         if _dist(zed, adc) < 0.10 and zed.cc_remaining <= 0.0 and not blocked:
             adc.hp_frac = max(0.0, adc.hp_frac - 0.30)
             self._diving = False
@@ -152,9 +162,12 @@ class SupportSim:
             d = max(1e-6, math.hypot(dx, dy))
             me.x = adc.x + dx / d * 0.04
             me.y = adc.y + dy / d * 0.04
-            # if the diver is adjacent and CC is up, lock it down too
-            if _dist(me, zed) < 0.12 and me.ability_ready("Q"):
-                zed.cc_remaining = 1.0
+            # the core peel: HOLD the stun until the diver is actually on the
+            # carry (don't waste it early), then CC to stop the burst. A good
+            # support doesn't blow CC on an approaching enemy — it waits.
+            diver_committed = _dist(zed, adc) < 0.12
+            if diver_committed and me.ability_ready("Q"):
+                zed.cc_remaining = 1.5
                 me.cooldowns["Q"] = 6.0
         elif action == "WARD_OBJECTIVE":
             obj = self.objectives[0]
@@ -165,7 +178,15 @@ class SupportSim:
         elif action == "RETREAT":
             me.x = max(0.20, me.x - 0.03)
             me.y = max(0.20, me.y - 0.03)
-        # "HOLD" / anything else: do nothing this tick
+        else:
+            # "HOLD": a support doesn't stand still — it FOLLOWS its carry,
+            # staying just behind so it's in range to react to a dive.
+            dx, dy = adc.x - me.x, adc.y - me.y
+            d = math.hypot(dx, dy)
+            if d > 0.05:
+                step = min(0.03, d)
+                me.x += dx / d * step
+                me.y += dy / d * step
 
     def _get(self, name: str) -> Champion:
         return next(c for c in self.champs if c.name == name)
