@@ -89,6 +89,10 @@ class Champion:
         self.spawn_x = self.x
         self.spawn_y = self.y
         self.respawn_timer = 0.0        # seconds until revive (0 = alive)
+        # economy
+        self.gold = 500                 # starting gold (League-ish)
+        self.cs = 0                     # creep score (minions last-hit)
+        self.items: list = []           # inventory (filled by the shop)
 
     # ---- queries ----
     @property

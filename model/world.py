@@ -42,11 +42,17 @@ class Cast:
 
 
 @dataclass
+class LastHit:
+    """Attack a specific enemy minion (for farming / last-hitting gold)."""
+    minion_uid: int
+
+
+@dataclass
 class Idle:
     pass
 
 
-Action = Move | Auto | Cast | Idle
+Action = Move | Auto | Cast | LastHit | Idle
 
 
 def dist(a: Champion, b: Champion) -> float:
@@ -73,6 +79,9 @@ class World:
         # each: {"kind": "auto"|"cast"|"heal", "src": name, "dst": name,
         #        "slot": str|None, "cc": bool}
         self.fx: list[dict] = []
+        # minions / lane economy
+        from model.minions import MinionManager
+        self.minions = MinionManager()
 
     # ---- queries controllers use ----
     def get(self, name: str) -> Champion:
@@ -99,6 +108,9 @@ class World:
                 continue
             self._apply(champ, action)
 
+        # minions march/fight after champions act
+        self.minions.update(self, TICK)
+
     def _respawn_time(self) -> float:
         """League-like scaling respawn: longer as the game goes on."""
         # simple, readable curve: ~8s early, growing with match time
@@ -122,7 +134,22 @@ class World:
             self._auto(champ, action.target)
         elif isinstance(action, Cast):
             self._cast(champ, action)
+        elif isinstance(action, LastHit):
+            self._last_hit(champ, action.minion_uid)
         # Idle: nothing
+
+    def _last_hit(self, champ: Champion, uid: int) -> None:
+        minion = next((m for m in self.minions.minions if m.uid == uid), None)
+        if not minion or not minion.alive or not champ.can_auto():
+            return
+        if math.hypot(champ.x - minion.x, champ.y - minion.y) > \
+                champ.stats.attack_range:
+            return
+        self.minions.champion_hit_minion(self, champ, minion,
+                                         champ.stats.ad, "physical")
+        champ.attack_cd = 1.0 / max(0.1, champ.stats.attack_speed)
+        self.fx.append({"kind": "auto", "src": champ.name,
+                        "dst": f"minion:{uid}", "slot": None, "cc": False})
 
     def _move_toward(self, champ: Champion, tx: float, ty: float) -> None:
         dx, dy = tx - champ.x, ty - champ.y
