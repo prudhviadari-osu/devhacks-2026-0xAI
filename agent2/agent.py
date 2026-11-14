@@ -29,11 +29,19 @@ class Decision:
 
 
 class UtilityAgent:
+    # hysteresis: a NEW capability must beat the one we're committed to by this
+    # fraction before we switch, and we hold a pick for a minimum time. Together
+    # these stop the peel<->kite<->attack flip-flop (near-tied scores thrashing).
+    SWITCH_MARGIN = 0.20          # challenger must score 20% higher to steal
+    MIN_COMMIT_TICKS = 5          # ~0.5s at 10Hz before reconsidering a switch
+
     def __init__(self, repertoire: list[Capability] | None = None,
                  weights: dict[str, float] | None = None):
         self.repertoire = repertoire or DEFAULT_REPERTOIRE
         self.weights = weights or {}
         self.last: Decision | None = None
+        self._committed: str | None = None   # name of current capability
+        self._commit_ticks = 0
 
     def decide(self, world: World, me_name: str) -> Decision:
         p = Perception(world, me_name)
@@ -44,12 +52,14 @@ class UtilityAgent:
                 proposals.append(prop)
 
         if not proposals:
+            self._committed = None
             d = Decision(Idle(), "idle", "no proposal", "", 0.0)
             self.last = d
             return d
 
         proposals.sort(key=lambda pr: pr.score, reverse=True)
-        best = proposals[0]
+        top = proposals[0]
+        best = self._apply_hysteresis(top, proposals)
 
         # survival gate: don't throw. If the best pick is a risky commit and we'd
         # die for nothing, downgrade to the best SAFE proposal instead of feeding.
@@ -67,6 +77,39 @@ class UtilityAgent:
         )
         self.last = d
         return d
+
+    def _apply_hysteresis(self, top: Proposal,
+                          proposals: list[Proposal]) -> Proposal:
+        """Stick with the committed capability unless a challenger clearly wins.
+
+        Prevents thrashing between near-tied capabilities (the infinite
+        peel/kite/attack loop). We only switch if either (a) the committed
+        capability no longer proposes, or (b) the new top beats it by
+        SWITCH_MARGIN after the minimum commit time.
+        """
+        committed_prop = next(
+            (pr for pr in proposals if pr.name == self._committed), None)
+
+        # nothing committed, or our commitment vanished -> take the top, commit
+        if committed_prop is None:
+            self._committed = top.name
+            self._commit_ticks = 0
+            return top
+
+        self._commit_ticks += 1
+
+        # still early in the commitment -> keep doing it (don't reconsider yet)
+        if self._commit_ticks < self.MIN_COMMIT_TICKS:
+            return committed_prop
+
+        # past min commit: only switch if the challenger clearly beats us
+        if top.name != self._committed and \
+                top.score > committed_prop.score * (1 + self.SWITCH_MARGIN):
+            self._committed = top.name
+            self._commit_ticks = 0
+            return top
+
+        return committed_prop
 
     # risky = commits us toward enemies (engage / body-block / step-in)
     def _is_risky(self, prop: Proposal) -> bool:
