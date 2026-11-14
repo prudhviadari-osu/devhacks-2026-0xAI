@@ -24,6 +24,56 @@ behavior trace* demo. So:
   is the integratability story: dropping into Riot's engine is one more source
   behind the same interface.
 
+## The playable League-accurate sim (MVC)
+
+A real, playable top-down game — graphics are plain shapes on purpose; **fidelity
+is in the numbers, not the art**. You (or the bot) play Sona; the rest are bots
+or data runs.
+
+```
+model/        MODEL — the world + rules + REAL League stats
+  stats.py      verified growth curve + armor/MR mitigation formulas
+  abilities.py  real Q/W/E/R data (dmg, ratios, cd, cc) for the roster
+  champion.py   a live champion: stats@level + abilities + hp/mana/cooldowns
+  world.py      ticks movement, autos, abilities; applies real mitigation/CC
+controllers/  CONTROLLER — one per champion, same decide(world) interface
+  human.py      you play (keyboard/mouse)
+  bot.py        the support brain (planner + triage + survival gate)
+  replay.py     plays back recorded / past-game actions
+view/         VIEW — pygame window: champions, HP/mana bars, ranges, CC, callouts
+game.py       the loop: input -> controllers -> world.step -> render
+```
+
+**Statistical fidelity (what's exact vs. approximated):**
+- Exact & public: per-level stat growth `base + growth·(L-1)·(0.7025+0.0175·(L-1))`,
+  mitigation `raw·100/(100+resist)`, Data-Dragon base stats, hand-entered ability
+  damage/ratios/cooldowns/CC.
+- Approximated (and labeled `SIMPLIFIED`): aura/combo mechanics (Ryze stacking,
+  Sona auras), pathfinding, exact leash/projectile internals Riot doesn't publish.
+
+**Roster (v1):** Jax, Lulu, Ryze, Sona, Zac.
+**Scope (v1 = a):** movement + auto-attacks + one ability + growth + mitigation.
+Next (b): all four abilities per champion (data already present).
+
+Run it (on a machine with a display):
+
+```bash
+pip install pygame
+python3 game.py            # you play Sona
+HUMAN=0 python3 game.py    # bot plays Sona, you watch
+```
+Controls: right-click = move, left-click a champion = auto-attack, Q/W/E/R = cast.
+
+## Transition to an Overwolf overlay (later)
+
+The bot brain is fully decoupled from the sim (it only touches `GameState` /
+`BotOutput`). To ship as a live-game overlay on a teammate's Windows PC: wrap
+`agent.act()` in a localhost service (≈ `run_live.py`), have an Overwolf app read
+the Live Client Data API and POST state to it, and draw the returned callouts as
+an overlay. No brain rewrite — the live adapter (`sources/live_client.py`) already
+exists. The overlay version is a macro coach (live API has no positions), while
+the full reactive bot that *plays* lives in the sim.
+
 ## How it decides who to help (triage)
 
 Every tick the bot scores each ally (and each objective) on ONE scale, and helps
