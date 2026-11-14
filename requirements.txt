@@ -1,0 +1,5 @@
+# Core runs with the stdlib only (offline demo needs nothing installed).
+# Install these only for the features you turn on:
+requests        # live_client.py + Ollama provider
+urllib3         # live_client.py (self-signed localhost cert)
+openai          # only if LLM=openai
