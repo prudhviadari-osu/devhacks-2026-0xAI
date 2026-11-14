@@ -43,20 +43,24 @@ def build_scene(human_plays_sona: bool):
     ]
     world = World(champs, dragon_spawn=15.0)
 
+    from controllers.utility_bot import UtilityBotController
+
     human = HumanController()
     if human_plays_sona:
         sona_ctrl = human
     elif os.environ.get("UTILITY", "1") != "0":
-        from controllers.utility_bot import UtilityBotController
-        sona_ctrl = UtilityBotController()   # new versatile brain (default)
+        sona_ctrl = UtilityBotController()   # versatile utility brain (default)
     else:
         sona_ctrl = BotController()          # old planner+tree brain
+    # every bot champion uses the utility brain so behavior is sensible, not a
+    # mid-lane suicide blob. (Per-role weights = next step: divers aggressive,
+    # supports protective. For now all share neutral weights.)
     controllers = {
         "Sona": sona_ctrl,
-        "Lulu": _carry_ai(),         # simple ally carry behavior
-        "Ryze": _carry_ai(),
-        "Zac":  _diver_ai(),         # enemy diver
-        "Jax":  _diver_ai(),
+        "Lulu": UtilityBotController(),
+        "Ryze": UtilityBotController(),
+        "Zac":  UtilityBotController(),
+        "Jax":  UtilityBotController(),
     }
     return world, controllers, human, (sona_ctrl if not human_plays_sona else None)
 
