@@ -47,6 +47,10 @@ class UtilityAgent:
         # to damp A<->B cycles (ward<->group) that slip past commit timing
         self._recent_left: dict[str, int] = {}
         self._age = 0
+        # per-match behavior-switch counter. Every switch funnels through
+        # _commit, so this counts switches and _age counts ticks. Read via
+        # switch_telemetry(); trainers use it to detect pathological churn.
+        self.switch_count = 0
         # online learning: weights adapt toward what earns reward (Option A)
         self.learn = learn
         self.learner = None
@@ -268,6 +272,16 @@ class UtilityAgent:
     def _commit(self, name: str) -> None:
         self._committed = name
         self._commit_ticks = 0
+        self.switch_count += 1   # telemetry only; does not affect decisions
+
+    def switch_telemetry(self) -> dict:
+        """Read-only switch/tick counts as plain picklable data.
+
+        Returns {'switches': int, 'ticks': int} so train_parallel.py workers
+        can ship it back on their result dict under macOS spawn. ticks uses
+        self._age, which increments once per decide() tick.
+        """
+        return {"switches": int(self.switch_count), "ticks": int(self._age)}
 
     # risky = commits us toward/at enemies
     def _is_risky(self, prop: Proposal) -> bool:

@@ -124,11 +124,17 @@ function scalePx(units) {
 
 // ---- Summoner's Rift-ish background ----
 function drawMap() {
-  ctx.fillStyle = "#1c2c22"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const lane = "#3a3e30", river = "#28465f";
+  // base terrain with a soft vignette so the arena reads as a lit field
+  const g = ctx.createRadialGradient(
+    canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.1,
+    canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.75);
+  g.addColorStop(0, "#233829"); g.addColorStop(0.6, "#1b2c20");
+  g.addColorStop(1, "#131d17");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const lane = "#3d4234", river = "#2a4a64";
   const L = (x0,y0,x1,y1,w,col) => {
     const [ax,ay]=toScreen(x0,y0),[bx,by]=toScreen(x1,y1);
-    ctx.strokeStyle=col; ctx.lineWidth=w; ctx.beginPath();
+    ctx.strokeStyle=col; ctx.lineWidth=w; ctx.lineCap="round"; ctx.beginPath();
     ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
   };
   const laneW = scalePx(1600);
@@ -142,6 +148,14 @@ function drawMap() {
   const base = (x,y,col) => { const [sx,sy]=toScreen(x,y);
     ctx.fillStyle=col; ctx.beginPath(); ctx.arc(sx,sy,scalePx(1200),0,7); ctx.fill(); };
   base(1000,1000,"rgba(70,110,200,.35)"); base(14000,14000,"rgba(200,70,70,.35)");
+  ctx.lineCap = "butt";
+  // faint tactical grid across the whole map (every 2500 world units)
+  ctx.strokeStyle = "rgba(255,255,255,.035)"; ctx.lineWidth = 1;
+  for (let i = 0; i <= MAP; i += 2500) {
+    const [vx] = toScreen(i, 0), [, hy] = toScreen(0, i);
+    ctx.beginPath(); ctx.moveTo(vx, 0); ctx.lineTo(vx, canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(canvas.width, hy); ctx.stroke();
+  }
 }
 
 function teamColor(team) { return team === "ALLY" ? "#4fa8ff" : "#ef5a5a"; }
@@ -156,10 +170,14 @@ function render(snap) {
   {
     const o = snap.objective;
     const [x,y] = toScreen(o.x, o.y);
-    ctx.fillStyle = o.up ? "#d49a3c" : "#555b68";
+    ctx.save();
+    if (o.up) { ctx.shadowColor = "#e0a54a"; ctx.shadowBlur = 16; }
+    ctx.fillStyle = o.up ? "#e0a54a" : "#555b68";
     ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill();
-    ctx.fillStyle = o.up ? "#d49a3c" : "#7a8092";
-    ctx.font = "11px monospace"; ctx.textAlign = "center";
+    ctx.restore();
+    ctx.fillStyle = o.up ? "#f2c94c" : "#7a8092";
+    ctx.font = o.up ? "bold 11px ui-monospace,monospace" : "11px ui-monospace,monospace";
+    ctx.textAlign = "center";
     ctx.fillText(o.up ? "DRAGON UP" : `dragon ${o.spawns_in|0}s`, x, y + 20);
   }
 
@@ -290,12 +308,28 @@ function render(snap) {
     const baseR = Math.max(3, Math.min(20, scalePx(130)));
     const r = baseR * bob * atkPulse;
 
-    // body (flash white on hit, orange tint while attacking)
-    ctx.fillStyle = p.hitFlash > 0
-      ? `rgba(255,255,255,${0.4 + 0.6 * p.hitFlash})`
-      : (p.atk > 0.3 ? "#ffcf6a" : col);
+    // team-tinted glow under the body so champions read as lit tokens, not blobs
+    ctx.save();
+    ctx.shadowColor = col;
+    ctx.shadowBlur = (r + 6) * (p.atk > 0.3 ? 1.6 : 1);
+    // body (flash white on hit, orange tint while attacking) with a subtle
+    // radial fill (lighter core -> team color edge) for a crisper token look
+    let bodyFill;
+    if (p.hitFlash > 0) {
+      bodyFill = `rgba(255,255,255,${0.4 + 0.6 * p.hitFlash})`;
+    } else if (p.atk > 0.3) {
+      bodyFill = "#ffcf6a";
+    } else {
+      const bg = ctx.createRadialGradient(x - r*0.3, y - r*0.3, r*0.15, x, y, r);
+      bg.addColorStop(0, "rgba(255,255,255,.55)");
+      bg.addColorStop(0.35, col);
+      bg.addColorStop(1, col);
+      bodyFill = bg;
+    }
+    ctx.fillStyle = bodyFill;
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+    ctx.restore();
+    ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.stroke();
 
     // facing indicator (a little nub in the movement direction)
     if (moving) {
@@ -313,12 +347,17 @@ function render(snap) {
 
     // name + hp bar, positioned relative to the (zoom-scaled) body radius
     const bw = Math.max(26, r * 2.4);            // hp-bar width tracks body size
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,.85)"; ctx.shadowBlur = 4;
     ctx.fillStyle = "#fff";
-    ctx.font = `${Math.max(10, Math.min(14, r))}px monospace`;
+    ctx.font = `600 ${Math.max(10, Math.min(14, r))}px ui-monospace,monospace`;
     ctx.textAlign = "center";
     ctx.fillText(`${c.name} L${c.level}`, x, y - r - 6);
+    ctx.restore();
     const by = y + r + 4;
-    ctx.fillStyle = "#3a3f4c"; ctx.fillRect(x - bw/2, by, bw, 4);
+    // hp-bar track with a thin backing so it reads crisply over the map
+    ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(x - bw/2 - 1, by - 1, bw + 2, 6);
+    ctx.fillStyle = "#2b303c"; ctx.fillRect(x - bw/2, by, bw, 4);
     const hpcol = c.hp_frac > 0.5 ? "#5fd27a" : c.hp_frac > 0.25 ? "#d4b24a" : "#e05a5a";
     ctx.fillStyle = hpcol; ctx.fillRect(x - bw/2, by, bw * c.hp_frac, 4);
     ctx.globalAlpha = 1;
