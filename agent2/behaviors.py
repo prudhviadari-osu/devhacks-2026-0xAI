@@ -630,6 +630,63 @@ class Spacing(Capability):
                         f"maintain spacing from {threat.name}")
 
 
+class DefendStructure(Capability):
+    """Defend your own towers/nexus when enemies are attacking them. Priority
+    SCALES WITH THREAT: a safe structure is ignored; a nexus under attack is the
+    single highest-value play on the board (drop everything, defend). This avoids
+    the 'everyone rushes one spot' bug — only a real threat pulls defenders.
+
+    Unique: the only behavior that moves to protect FRIENDLY structures, and the
+    only one whose score can exceed every combat behavior (emergency defense).
+    """
+    name, family = "defend", "MACRO"
+    phases = (Phase.LANING, Phase.SKIRMISH, Phase.TEAMFIGHT, Phase.OBJECTIVE,
+              Phase.RETREAT)
+
+    def propose(self, p, w):
+        me = p.me
+        sm = getattr(p.world, "structures", None)
+        if sm is None:
+            return None
+        enemies = p.enemies()
+        if not enemies:
+            return None
+        # find MY most-threatened structure: enemies near it + how hurt it is
+        best, best_threat = None, 0.0
+        for s in sm.structures:
+            if s.team != me.team or not s.alive:
+                continue
+            near = [e for e in enemies if p.dist(e, s) < 1600]
+            if not near:
+                continue
+            # threat = #attackers x structure importance x (1 + how hurt it is)
+            importance = 3.0 if s.kind == "nexus" else (
+                1.6 if s.tier == 2 else 1.0)       # nexus >> inner >> outer
+            threat = len(near) * importance * (1.0 + (1.0 - s.hp_frac))
+            if threat > best_threat:
+                best, best_threat = s, threat
+        if best is None:
+            return None
+
+        d = p.dist(me, best)
+        # don't bother defending from across the map if I can't matter in time
+        if d > 5000:
+            return None
+        # score scales with threat AND nearness. A nexus under attack (importance
+        # 3, hurt, multiple attackers) can reach ~2.5+, above any combat behavior.
+        score = min(3.0, 0.5 + 0.35 * best_threat) * (1.0 - 0.08 * (d / 1000))
+        # if I'm already there, fight the nearest attacker; else rush to defend
+        attacker = _nearest(me, [e for e in enemies if p.dist(e, best) < 1600])
+        if attacker and p.dist(me, attacker) <= me.stats.attack_range:
+            return Proposal(score * self.w(w, 1.0), Auto(attacker.name),
+                            self.name,
+                            f"defend {best.kind} — fight {attacker.name}",
+                            comms=f"Defending our {best.kind}!", target=attacker.name)
+        return Proposal(score * self.w(w, 1.0), Move(best.x, best.y), self.name,
+                        f"rush to defend our {best.kind}",
+                        comms=f"Back to defend the {best.kind}!")
+
+
 class SiegeStructure(Capability):
     """Push: attack the nearest attackable enemy tower/nexus. Unique: the only
     behavior that targets STRUCTURES — how the game is actually won. Scores
@@ -701,5 +758,5 @@ FULL_REPERTOIRE = [
     SecureObjective(), ContestObjective(), TradeObjective(),  # OBJECTIVE (3)
     Ward(),                                                   # VISION (1)
     Spacing(), Flee(), Disengage(), Recall(),                 # SURVIVAL (4)
-    Group(), Roam(), SiegeStructure(), Hold(),                # MACRO (4)
+    Group(), Roam(), SiegeStructure(), DefendStructure(), Hold(),  # MACRO (5)
 ]
