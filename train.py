@@ -51,6 +51,16 @@ FOCUS_RATE = 0.18        # the champion being trained learns fast
 BACKGROUND_RATE = 0.03   # others drift slowly (near-stable field)
 
 
+def _fmt_time(seconds: float) -> str:
+    """Human-readable duration."""
+    s = int(seconds)
+    if s < 90:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s//60}m {s%60}s"
+    return f"{s//3600}h {(s%3600)//60}m"
+
+
 def roster():
     champs, _, _, _ = scenarios.get("balanced")
     return [c.name for c in champs]
@@ -158,10 +168,27 @@ def train(cycles: int, block: int, eval_every: int):
     print(f"[train] {cycles} cycles x {len(names)} champions x {block} matches "
           f"= {cycles*len(names)*block} training matches\n")
 
+    # --- measure this machine's per-match time on 2 warmup matches, then
+    # project the total run time so you know what you're committing to ---
+    total_matches = cycles * len(names) * block
+    print(f"[train] measuring speed on this machine (2 warmup matches)...")
+    wt = time.time()
+    for _ in range(2):
+        play_match(focus=names[0], focus_rate=FOCUS_RATE, bg_rate=BACKGROUND_RATE)
+    per_match = (time.time() - wt) / 2
+    est = per_match * total_matches
+    # add the eval overhead (each eval ~12 games)
+    n_evals = total_matches // max(1, eval_every)
+    est += n_evals * 12 * per_match
+    print(f"[train] ~{per_match:.1f}s/match @ speed {TIME_SCALE}x  ->  "
+          f"{total_matches} matches + {n_evals} evals")
+    print(f"[train] ESTIMATED TOTAL: {_fmt_time(est)}  "
+          f"(saves incrementally — Ctrl+C anytime to keep progress)\n")
+
     snapshot_benchmark()
     report = {"curve": [], "roster": names}
     t0 = time.time()
-    match_count = 0
+    match_count = 2   # count the warmups
 
     for cycle in range(cycles):
         for champ in names:
@@ -175,9 +202,12 @@ def train(cycles: int, block: int, eval_every: int):
                     report["curve"].append(
                         {"match": match_count, "winrate_vs_benchmark": wr,
                          "cycle": cycle, "focus": champ})
-                    print(f"  [{match_count:5d} matches | cycle {cycle} | "
-                          f"focus {champ:7}] winrate vs benchmark = {wr:.2f} "
-                          f"({elapsed:.0f}s)")
+                    # live ETA from actual pace so far
+                    frac = match_count / max(1, total_matches)
+                    eta = (elapsed / frac - elapsed) if frac > 0 else 0
+                    print(f"  [{match_count:5d}/{total_matches} | cycle {cycle} | "
+                          f"focus {champ:7}] winrate vs benchmark = {wr:.2f}  "
+                          f"| elapsed {_fmt_time(elapsed)}, ETA {_fmt_time(eta)}")
                     # write report incrementally so an interrupted run keeps data
                     with open(REPORT, "w") as f:
                         json.dump(report, f, indent=1)
