@@ -88,6 +88,13 @@ class World:
         # towers + nexus (map structure + win condition)
         from model.structures import StructureManager
         self.structures = StructureManager()
+        # set each champion's BASE to its team's nexus corner, so respawns return
+        # to the fountain (real League) regardless of where they start the match
+        for c in self.champions:
+            nx = self.structures.nexus(c.team)
+            if nx is not None:
+                c.base_x, c.base_y = nx.x, nx.y
+                c.spawn_x, c.spawn_y = nx.x, nx.y
 
     # ---- queries controllers use ----
     def get(self, name: str) -> Champion:

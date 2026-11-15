@@ -31,6 +31,20 @@ def _c(name, team, role, x, y, level=9, hp_frac=1.0):
     return ch
 
 
+# team base corners (match the nexus positions in model/structures.py)
+BASE = {"ALLY": (1000, 1000), "ENEMY": (14000, 14000)}
+
+
+def _at_base(name, team, role, level=9):
+    """Create a champion AT its team's base corner (how a real match starts)."""
+    bx, by = BASE[team]
+    # small spread so they're not perfectly stacked on the nexus
+    import random
+    rng = random.Random(hash(name) & 0xffff)
+    ox, oy = rng.randint(-400, 400), rng.randint(-400, 400)
+    return _c(name, team, role, bx + ox, by + oy, level=level)
+
+
 def dive():
     champs = [
         _c("Lulu", "ALLY", "ADC", 5500, 5500),
@@ -113,18 +127,16 @@ def balanced_5v5():
     # lane-spread version left bot/top champs stranded far from any fight, so
     # they'd wander around their lane and never engage). Here everyone is within
     # skirmish range, so you get a real teamfight you can watch.
+    # champions START at their base corners (real League) and walk out to fight.
+    # Respawns also return to base. So it opens with both teams marching from
+    # opposite corners toward mid, then clashing.
     blue = [("Ashe", "ADC"), ("Sona", "SUPPORT"), ("Ryze", "MID"),
             ("Darius", "TOP"), ("Zac", "JUNGLE")]
     red = [("Ahri", "ADC"), ("Lulu", "SUPPORT"), ("Lux", "MID"),
            ("Jax", "TOP"), ("Leona", "JUNGLE")]
-    champs = []
-    for i, (name, role) in enumerate(blue):
-        ox = (i - 2) * 260
-        champs.append(_c(name, "ALLY", role, 6700 + ox, 6700 - ox))
-    for i, (name, role) in enumerate(red):
-        ox = (i - 2) * 260
-        champs.append(_c(name, "ENEMY", role, 8200 + ox, 8200 - ox))
-    return champs, 20, "Full 5v5, 10 unique champions meeting at mid", None
+    champs = [_at_base(n, "ALLY", r) for n, r in blue] + \
+             [_at_base(n, "ENEMY", r) for n, r in red]
+    return champs, 20, "Full 5v5 — spawn at base corners, march out, fight", None
 
 
 _jit_i = [0]

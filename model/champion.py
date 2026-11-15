@@ -116,9 +116,14 @@ class Champion:
         self.hp = self.stats.max_hp
         self.mp = self.stats.max_mp
         self.cooldowns = {"Q": 0.0, "W": 0.0, "E": 0.0, "R": 0.0}
-        # respawn: remember where this champ started (its base) and death timer
-        self.spawn_x = self.x
-        self.spawn_y = self.y
+        # base = the team's fountain/nexus corner (set by the World on spawn).
+        # respawn ALWAYS returns here (real League), not to where you died or
+        # where you started the scenario. Defaults to team corner; World overrides.
+        self.base_x = 1000.0 if self.team == "ALLY" else 14000.0
+        self.base_y = 1000.0 if self.team == "ALLY" else 14000.0
+        # spawn_x/y kept for the scoreboard "dead marker" location = base
+        self.spawn_x = self.base_x
+        self.spawn_y = self.base_y
         self.respawn_timer = 0.0        # seconds until revive (0 = alive)
         # economy
         self.gold = 500                 # starting gold (League-ish)
@@ -144,10 +149,11 @@ class Champion:
         return self.hp <= 0.0
 
     def respawn(self) -> None:
-        """Revive at base, full HP/mana, cooldowns reset."""
+        """Revive at the team BASE (fountain), full HP/mana, cooldowns reset —
+        real League: you always come back at base, then walk out."""
         self.hp = self.stats.max_hp
         self.mp = self.stats.max_mp
-        self.x, self.y = self.spawn_x, self.spawn_y
+        self.x, self.y = self.base_x, self.base_y
         self.cc_remaining = 0.0
         self.attack_cd = 0.0
         self.respawn_timer = 0.0
