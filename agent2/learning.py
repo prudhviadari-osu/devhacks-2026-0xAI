@@ -28,9 +28,9 @@ from dataclasses import dataclass, field
 
 # ---- reward term weights (each objective tuned independently) ----
 # rebalanced so support + objectives matter, not just raw survival.
-W_SURVIVE   = 0.6     # staying alive / keeping hp (per-tick hp delta)
-W_TIME      = 0.25    # bonus for time stayed alive (rewards not feeding)
-W_DEATH     = 1.2     # penalty magnitude for dying
+W_SURVIVE   = 0.3     # staying alive / keeping hp (lowered — less self-preservation)
+W_TIME      = 0.1     # small bonus for time alive (lowered)
+W_DEATH     = 0.7     # death penalty (lowered, but kept so they don't fully throw)
 W_KILL      = 1.0     # securing a kill
 W_STREAK    = 0.4     # extra per point of killstreak (snowball reward)
 W_ASSIST    = 0.7     # assisting a kill (rewards teamplay/support)
