@@ -123,17 +123,31 @@ function render(snap) {
     ctx.fillRect(x - s, y - s, s * 2, s * 2);
   }
 
-  // effects (lines from src to dst), freshest = brightest
-  for (const e of snap.fx || []) fxFlashes.push({ ...e, life: 1 });
+  // effects (projectiles that travel src->dst, then fade). Longer-lived and
+  // thicker so you actually SEE the ranged attacks, not a 1-frame flash.
+  for (const e of snap.fx || []) fxFlashes.push({ ...e, life: 1, age: 0 });
   for (let i = fxFlashes.length - 1; i >= 0; i--) {
     const e = fxFlashes[i];
     const [ax,ay] = toScreen(e.src_x, e.src_y), [bx,by] = toScreen(e.dst_x, e.dst_y);
-    let col = "230,230,180";                 // auto
+    let col = "230,230,180";                 // auto-attack
     if (e.kind === "heal") col = "120,240,160";
-    else if (e.kind === "cast") col = e.cc ? "240,220,90" : "200,120,240";
-    ctx.strokeStyle = `rgba(${col},${e.life})`; ctx.lineWidth = 2;
+    else if (e.kind === "cast") col = e.cc ? "240,220,90" : "190,110,250";
+    // the trail line
+    ctx.strokeStyle = `rgba(${col},${e.life * 0.9})`;
+    ctx.lineWidth = e.kind === "cast" ? 3.5 : 2;
     ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
-    e.life -= 0.12; if (e.life <= 0) fxFlashes.splice(i, 1);
+    // a moving projectile head along the line (reads as a ranged shot)
+    const t = Math.min(1, e.age);
+    const px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+    ctx.fillStyle = `rgba(${col},${e.life})`;
+    ctx.beginPath(); ctx.arc(px, py, e.kind === "cast" ? 5 : 3, 0, 7); ctx.fill();
+    // impact flash at the target when it arrives
+    if (t >= 1) {
+      ctx.strokeStyle = `rgba(${col},${e.life})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(bx, by, 10 * (1 - e.life) + 6, 0, 7); ctx.stroke();
+    }
+    e.age += 0.25; e.life -= 0.045;          // slower fade -> visible ~0.5s
+    if (e.life <= 0) fxFlashes.splice(i, 1);
   }
 
   // champions (smoothed movement + facing + animation state)

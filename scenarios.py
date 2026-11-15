@@ -109,27 +109,22 @@ def balanced_5v5():
     jungle roams. Each side archetype-balanced. Champions default to their lane
     and only group/rotate when it's worth it (via the behaviors), so the map
     stays spread like a real game."""
-    # lane anchor points (ally side / enemy side) roughly along each lane
-    LANE = {
-        "TOP": ((1400, 7000), (7000, 13000)),
-        "MID": ((6400, 6400), (8400, 8400)),
-        "BOT": ((7000, 1400), (13000, 7000)),
-    }
-    # (name, role, lane) per side
-    blue = [("Ashe", "ADC", "BOT"), ("Sona", "SUPPORT", "BOT"),
-            ("Ryze", "MID", "MID"), ("Darius", "TOP", "TOP"),
-            ("Zac", "JUNGLE", "MID")]
-    red = [("Ahri", "ADC", "BOT"), ("Lulu", "SUPPORT", "BOT"),
-           ("Lux", "MID", "MID"), ("Jax", "TOP", "TOP"),
-           ("Leona", "JUNGLE", "MID")]
+    # Both squads meet near mid, close enough that they actually clash (the
+    # lane-spread version left bot/top champs stranded far from any fight, so
+    # they'd wander around their lane and never engage). Here everyone is within
+    # skirmish range, so you get a real teamfight you can watch.
+    blue = [("Ashe", "ADC"), ("Sona", "SUPPORT"), ("Ryze", "MID"),
+            ("Darius", "TOP"), ("Zac", "JUNGLE")]
+    red = [("Ahri", "ADC"), ("Lulu", "SUPPORT"), ("Lux", "MID"),
+           ("Jax", "TOP"), ("Leona", "JUNGLE")]
     champs = []
-    for name, role, lane in blue:
-        ax, ay = LANE[lane][0]
-        champs.append(_c(name, "ALLY", role, ax + _jit(), ay + _jit()))
-    for name, role, lane in red:
-        ex, ey = LANE[lane][1]
-        champs.append(_c(name, "ENEMY", role, ex + _jit(), ey + _jit()))
-    return champs, 20, "Full 5v5, 10 unique champs across 3 lanes — spread, not a blob", None
+    for i, (name, role) in enumerate(blue):
+        ox = (i - 2) * 260
+        champs.append(_c(name, "ALLY", role, 6700 + ox, 6700 - ox))
+    for i, (name, role) in enumerate(red):
+        ox = (i - 2) * 260
+        champs.append(_c(name, "ENEMY", role, 8200 + ox, 8200 - ox))
+    return champs, 20, "Full 5v5, 10 unique champions meeting at mid", None
 
 
 _jit_i = [0]
