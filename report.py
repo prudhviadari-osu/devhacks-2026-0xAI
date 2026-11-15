@@ -13,12 +13,15 @@ BRAINS = os.path.join(HERE, "brains")
 
 
 def ascii_curve(points):
-    """A tiny terminal chart of winrate vs benchmark over matches."""
+    """A tiny terminal chart of winrate over matches. Handles both trainers:
+    sequential uses 'winrate_vs_benchmark', parallel uses 'ally_winrate'."""
     if not points:
         return "  (no eval points yet)"
     rows = 10
     out = []
-    vals = [p["winrate_vs_benchmark"] for p in points]
+    key = ("winrate_vs_benchmark" if "winrate_vs_benchmark" in points[0]
+           else "ally_winrate")
+    vals = [p.get(key, 0.5) for p in points]
     for r in range(rows, -1, -1):
         thresh = r / rows
         line = f"{thresh:4.1f} |"
@@ -38,8 +41,15 @@ def main():
         print(ascii_curve(rep.get("curve", [])))
         c = rep.get("curve", [])
         if c:
-            print(f"\nlatest winrate vs benchmark: {c[-1]['winrate_vs_benchmark']:.2f}")
-            print(f"total matches so far: {rep.get('total_matches', c[-1]['match'])}")
+            last = c[-1]
+            if "winrate_vs_benchmark" in last:
+                label = "latest winrate vs benchmark"
+                latest = last["winrate_vs_benchmark"]
+            else:
+                label = "latest ally winrate"
+                latest = last.get("ally_winrate", 0.5)
+            print(f"\n{label}: {latest:.2f}")
+            print(f"total matches so far: {rep.get('total_matches', last['match'])}")
     else:
         print("no training_report.json yet — run train.py first")
 
