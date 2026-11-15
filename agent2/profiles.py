@@ -14,6 +14,7 @@ Behavior names:
 from __future__ import annotations
 
 ENCHANTER = {   # Sona, Lulu: protect/peel/shield, stay back, don't dive/farm
+    "siege": 0.4,
     "spacing": 1.3,
     "shield_ally": 1.9,
     "cc_diver": 1.6,
@@ -32,6 +33,7 @@ ENCHANTER = {   # Sona, Lulu: protect/peel/shield, stay back, don't dive/farm
 }
 
 MAGE = {        # Ryze: poke/burst from range, farm to scale, don't dive
+    "siege": 0.7,
     "spacing": 1.6,
     "poke": 1.6,
     "focus_target": 1.4,
@@ -48,6 +50,7 @@ MAGE = {        # Ryze: poke/burst from range, farm to scale, don't dive
 }
 
 MARKSMAN = {    # ADC: farm hard, kite-auto, focus in fights; never initiate
+    "siege": 1.0,
     "spacing": 1.7,
     "last_hit": 1.7, "push_wave": 1.0,
     "auto_trade": 1.4,
@@ -62,6 +65,7 @@ MARKSMAN = {    # ADC: farm hard, kite-auto, focus in fights; never initiate
 }
 
 BRUISER = {     # Jax: dive the carry, catch picks, commit; durable
+    "siege": 1.1,
     "spacing": 0.5,
     "dive_carry": 1.6,
     "pick_isolated": 1.4,
@@ -78,6 +82,7 @@ BRUISER = {     # Jax: dive the carry, catch picks, commit; durable
 }
 
 TANK = {        # Zac: engage with the body, peel allies with CC, frontline
+    "siege": 0.8,
     "spacing": 0.2,
     "cc_diver": 1.5,
     "body_block": 1.4,

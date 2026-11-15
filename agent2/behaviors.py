@@ -630,6 +630,36 @@ class Spacing(Capability):
                         f"maintain spacing from {threat.name}")
 
 
+class SiegeStructure(Capability):
+    """Push: attack the nearest attackable enemy tower/nexus. Unique: the only
+    behavior that targets STRUCTURES — how the game is actually won. Scores
+    higher when safe (few enemies near) so champs don't suicide into a tower."""
+    name, family, phases = "siege", "MACRO", (Phase.LANING, Phase.OBJECTIVE)
+
+    def propose(self, p, w):
+        me = p.me
+        sm = getattr(p.world, "structures", None)
+        if sm is None:
+            return None
+        s = sm.nearest_attackable_enemy_structure(me)
+        if s is None:
+            return None
+        d = p.dist(me, s)
+        # only push when relatively safe (don't dive a defended tower)
+        enemies_near = sum(1 for e in p.enemies() if p.dist(e, s) < 1800)
+        if enemies_near > len([a for a in p.allies() if p.dist(a, s) < 1800]) + 1:
+            return None
+        if d <= me.stats.attack_range:
+            # in range: damage it (handled via a Cast-less auto; see world hook)
+            return Proposal(0.6 * self.w(w, 0.8), Auto("__struct__"), self.name,
+                            f"attack {s.team} {s.lane} "
+                            f"{'nexus' if s.kind=='nexus' else 'tower'}")
+        if d < 3000:
+            return Proposal(0.5 * self.w(w, 0.8), Move(s.x, s.y), self.name,
+                            f"push toward {s.team} {s.lane} structure")
+        return None
+
+
 class Hold(Capability):
     """Default presence: stay near the carry. Unique: lowest-priority fallback
     so the champ is never idle in the open; always proposes, always low."""
@@ -658,5 +688,5 @@ FULL_REPERTOIRE = [
     SecureObjective(), ContestObjective(), TradeObjective(),  # OBJECTIVE (3)
     Ward(),                                                   # VISION (1)
     Spacing(), Flee(), Disengage(), Recall(),                 # SURVIVAL (4)
-    Group(), Roam(), Hold(),                                  # MACRO (3)
+    Group(), Roam(), SiegeStructure(), Hold(),                # MACRO (4)
 ]

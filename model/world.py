@@ -82,6 +82,9 @@ class World:
         # minions / lane economy
         from model.minions import MinionManager
         self.minions = MinionManager()
+        # towers + nexus (map structure + win condition)
+        from model.structures import StructureManager
+        self.structures = StructureManager()
 
     # ---- queries controllers use ----
     def get(self, name: str) -> Champion:
@@ -111,8 +114,9 @@ class World:
                 continue
             self._apply(champ, action)
 
-        # minions march/fight after champions act
+        # minions march/fight, towers shoot, after champions act
         self.minions.update(self, TICK)
+        self.structures.update(self, TICK)
 
     def _respawn_time(self) -> float:
         """League-like scaling respawn: longer as the game goes on."""
@@ -189,6 +193,14 @@ class World:
         champ.y = max(0.0, min(MAP_SIZE, champ.y))
 
     def _auto(self, champ: Champion, target_name: str) -> None:
+        # special: attack the nearest attackable enemy structure
+        if target_name == "__struct__":
+            s = self.structures.nearest_attackable_enemy_structure(champ)
+            if s and champ.can_auto() and \
+                    math.hypot(s.x - champ.x, s.y - champ.y) <= champ.stats.attack_range:
+                self.structures.damage_structure(s, champ.stats.ad, self)
+                champ.attack_cd = 1.0 / max(0.1, champ.stats.attack_speed)
+            return
         target = self.by_name.get(target_name)
         if not target or not target.alive or not champ.can_auto():
             return

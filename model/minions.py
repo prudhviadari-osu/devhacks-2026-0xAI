@@ -82,8 +82,22 @@ class MinionManager:
             m.attack_cd = max(0.0, m.attack_cd - dt)
 
         self._act(world, dt)
+        self._siege_structures(world)
         # clear dead (gold already awarded on the killing blow)
         self.minions = [m for m in self.minions if m.alive]
+
+    def _siege_structures(self, world) -> None:
+        """Minions chip the nearest attackable enemy structure they're next to —
+        this is what actually pushes lanes toward the nexus."""
+        sm = getattr(world, "structures", None)
+        if sm is None:
+            return
+        for m in self.minions:
+            if not m.alive:
+                continue
+            s = sm.nearest_attackable_enemy_structure(m)
+            if s and math.hypot(s.x - m.x, s.y - m.y) <= m.attack_range:
+                sm.damage_structure(s, m.ad * 0.5, world)
 
     def _spawn_wave(self, team: str) -> None:
         for lane, path in LANE_PATHS.items():
