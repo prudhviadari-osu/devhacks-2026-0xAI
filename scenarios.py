@@ -132,10 +132,14 @@ def balanced_5v5():
     # champions START at their base corners (real League) and walk out to fight.
     # Respawns also return to base. So it opens with both teams marching from
     # opposite corners toward mid, then clashing.
-    blue = [("Ashe", "ADC"), ("Sona", "SUPPORT"), ("Ryze", "MID"),
-            ("Darius", "TOP"), ("Zac", "JUNGLE")]
-    red = [("Ahri", "ADC"), ("Lulu", "SUPPORT"), ("Lux", "MID"),
-           ("Jax", "TOP"), ("Leona", "JUNGLE")]
+    # archetype-balanced comps: each side has 1 marksman-ish carry, 1 enchanter,
+    # 1 mage, 1 bruiser, 1 tank — so neither team has a comp advantage and wins
+    # reflect play, not draft. (Ashe=marksman, Ahri/Ryze/Lux=mage, Sona/Lulu=
+    # enchanter, Jax/Darius=bruiser, Zac/Leona=tank.)
+    blue = [("Ashe", "ADC"), ("Sona", "SUPPORT"), ("Lux", "MID"),
+            ("Jax", "TOP"), ("Zac", "JUNGLE")]
+    red = [("Ahri", "ADC"), ("Lulu", "SUPPORT"), ("Ryze", "MID"),
+           ("Darius", "TOP"), ("Leona", "JUNGLE")]
     _match_rng.seed()   # fresh randomness each match -> varied games
     champs = [_at_base(n, "ALLY", r) for n, r in blue] + \
              [_at_base(n, "ENEMY", r) for n, r in red]

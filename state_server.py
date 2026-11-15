@@ -104,6 +104,9 @@ class SimRunner:
                 "dead_timer": round(c.respawn_timer, 1),
                 "spawn_x": c.spawn_x, "spawn_y": c.spawn_y,
                 "attack_range": c.stats.attack_range,
+                "move_speed": round(c.stats.move_speed, 0),
+                "attack_speed": round(c.stats.attack_speed, 2),
+                "attacking": c.attack_cd > 0.01,   # mid-attack this tick (anim)
                 "learned": learned,
                 "kills": c.kills, "deaths": c.deaths, "assists": c.assists,
                 "streak": c.killstreak, "cs": c.cs,

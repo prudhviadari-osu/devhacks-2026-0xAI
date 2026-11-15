@@ -150,16 +150,22 @@ function render(snap) {
     if (e.life <= 0) fxFlashes.splice(i, 1);
   }
 
-  // champions (smoothed movement + facing + animation state)
+  // champions — move toward target at each champ's OWN speed (so fast champs
+  // visibly outpace slow ones and it reads as walking, not teleport-gliding)
+  const dtFrame = 1 / 30;                        // render step ~30fps
   for (const c of snap.champions || []) {
     if (!c.alive) continue;
     const p = drawPos[c.name] || { x: c.x, y: c.y, sx: 0, sy: 0, hp: c.hp_frac,
-                                   hitFlash: 0, spawnFade: 0 };
-    // velocity-aware easing: gentle so motion looks like walking, not snapping
-    const nx = p.x + (c.x - p.x) * 0.22;
-    const ny = p.y + (c.y - p.y) * 0.22;
-    p.sx = nx - p.x; p.sy = ny - p.y;            // smoothed velocity (for facing)
-    p.x = nx; p.y = ny;
+                                   hitFlash: 0, spawnFade: 0, atk: 0 };
+    // move at the champion's real move speed (game units/sec), capped so we
+    // never overshoot the server target. This makes per-champ speed VISIBLE.
+    const dx = c.x - p.x, dy = c.y - p.y;
+    const dist = Math.hypot(dx, dy);
+    const speed = (c.move_speed || 330) * dtFrame * 1.15;  // slight lead on sim
+    const stepLen = Math.min(speed, dist);
+    const ox = p.x, oy = p.y;
+    if (dist > 1e-3) { p.x += (dx / dist) * stepLen; p.y += (dy / dist) * stepLen; }
+    p.sx = p.x - ox; p.sy = p.y - oy;            // actual velocity (for facing)
     // hit flash when hp dropped since last frame
     if (c.hp_frac < p.hp - 0.001) p.hitFlash = 1;
     p.hp = c.hp_frac;
@@ -176,13 +182,20 @@ function render(snap) {
     ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(x, y, scalePx(c.attack_range || 550), 0, 7); ctx.stroke();
 
-    // subtle walk bob: scale the body slightly with a time-based sine when moving
-    const bob = moving ? 1 + 0.12 * Math.sin(perfNow() / 90 + x) : 1;
-    const r = 9 * bob;
+    // attack animation: a brief scale-up pulse timed to the champ's attack
+    // speed, so a fast attacker (Ashe) visibly pulses more often than a slow
+    // one (Darius). `atk` ramps when attacking, decays otherwise.
+    if (c.attacking) p.atk = Math.min(1, p.atk + 0.5 * (c.attack_speed || 0.7));
+    else p.atk = Math.max(0, p.atk - 0.15);
+    const atkPulse = 1 + 0.35 * p.atk;
+    // subtle walk bob when moving (frequency scales with move speed)
+    const bob = moving ? 1 + 0.1 * Math.sin(perfNow() / (12000 / (c.move_speed||330))) : 1;
+    const r = 9 * bob * atkPulse;
 
-    // body (flash white on hit)
+    // body (flash white on hit, orange tint while attacking)
     ctx.fillStyle = p.hitFlash > 0
-      ? `rgba(255,255,255,${0.4 + 0.6 * p.hitFlash})` : col;
+      ? `rgba(255,255,255,${0.4 + 0.6 * p.hitFlash})`
+      : (p.atk > 0.3 ? "#ffcf6a" : col);
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
 

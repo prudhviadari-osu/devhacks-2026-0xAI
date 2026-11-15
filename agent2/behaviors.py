@@ -740,6 +740,34 @@ class SiegeStructure(Capability):
         return None
 
 
+class Advance(Capability):
+    """Leave base and move toward the action (mid / the enemy). Without this,
+    champions that start or respawn at their corner just sit there — this is the
+    'walk out of fountain to lane' drive. Targets map center, biased toward the
+    nearest enemy, so both teams march out and meet. Low-ish score so real
+    fights/defense override it, but high enough to beat idle 'hold'."""
+    name, family, phases = "advance", "MACRO", (Phase.LANING,)
+
+    def propose(self, p, w):
+        me = p.me
+        enemies = p.enemies()
+        # how far am I from the map middle? if I'm hugging base, advance.
+        cx, cy = 7500.0, 7500.0
+        d_center = ((me.x - cx) ** 2 + (me.y - cy) ** 2) ** 0.5
+        if d_center < 2500:
+            return None   # already near the action; let other behaviors act
+        # aim at the midpoint between center and the nearest enemy (march to meet)
+        if enemies:
+            e = _nearest(me, enemies)
+            tx, ty = (cx + e.x) / 2, (cy + e.y) / 2
+        else:
+            tx, ty = cx, cy
+        # stronger the farther out you are (so you don't dawdle in base)
+        score = 0.35 + 0.25 * min(1.0, d_center / 6000)
+        return Proposal(score * self.w(w, 1.0), Move(tx, ty), self.name,
+                        "advance toward the action")
+
+
 class Hold(Capability):
     """Default presence: stay near the carry. Unique: lowest-priority fallback
     so the champ is never idle in the open; always proposes, always low."""
@@ -768,5 +796,5 @@ FULL_REPERTOIRE = [
     SecureObjective(), ContestObjective(), TradeObjective(),  # OBJECTIVE (3)
     Ward(),                                                   # VISION (1)
     Spacing(), Flee(), Disengage(), Recall(),                 # SURVIVAL (4)
-    Group(), Roam(), SiegeStructure(), DefendStructure(), Hold(),  # MACRO (5)
+    Group(), Roam(), SiegeStructure(), DefendStructure(), Advance(), Hold(),  # MACRO (6)
 ]
