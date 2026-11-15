@@ -760,26 +760,29 @@ class Advance(Capability):
     'walk out of fountain to lane' drive. Targets map center, biased toward the
     nearest enemy, so both teams march out and meet. Low-ish score so real
     fights/defense override it, but high enough to beat idle 'hold'."""
-    name, family, phases = "advance", "MACRO", (Phase.LANING,)
+    name, family = "advance", "MACRO"
+    phases = (Phase.LANING, Phase.SKIRMISH, Phase.TEAMFIGHT, Phase.OBJECTIVE)
 
     def propose(self, p, w):
         me = p.me
         enemies = p.enemies()
-        # how far am I from the map middle? if I'm hugging base, advance.
-        cx, cy = 7500.0, 7500.0
-        d_center = ((me.x - cx) ** 2 + (me.y - cy) ** 2) ** 0.5
-        if d_center < 2500:
-            return None   # already near the action; let other behaviors act
-        # aim at the midpoint between center and the nearest enemy (march to meet)
         if enemies:
             e = _nearest(me, enemies)
-            tx, ty = (cx + e.x) / 2, (cy + e.y) / 2
-        else:
-            tx, ty = cx, cy
-        # stronger the farther out you are (so you don't dawdle in base)
-        score = 0.35 + 0.25 * min(1.0, d_center / 6000)
-        return Proposal(score * self.w(w, 1.0), Move(tx, ty), self.name,
-                        "advance toward the action")
+            d = p.dist(me, e)
+            # already in fighting range -> let combat behaviors act, don't advance
+            if d <= me.stats.attack_range * 1.2:
+                return None
+            # move TOWARD the nearest enemy to get in range to fight. Score rises
+            # with distance so champions reliably close the gap instead of holding.
+            score = 0.5 + 0.3 * min(1.0, d / 5000)
+            return Proposal(score * self.w(w, 1.0), Move(e.x, e.y), self.name,
+                            f"advance on {e.name}")
+        # no enemies visible -> drift toward map center / objective
+        cx, cy = 7500.0, 7500.0
+        if ((me.x - cx) ** 2 + (me.y - cy) ** 2) ** 0.5 < 2000:
+            return None
+        return Proposal(0.3 * self.w(w, 1.0), Move(cx, cy), self.name,
+                        "advance toward center")
 
 
 class Hold(Capability):
@@ -789,19 +792,23 @@ class Hold(Capability):
 
     def propose(self, p, w):
         me = p.me
-        carries = _ally_carries(p, exclude=me.name)
-        if carries:
-            carry = _lowest(carries)
-            tx, ty = carry.x - 200, carry.y - 200
-            # only MOVE if we're genuinely far from the hold spot; otherwise stay
-            # PUT (Idle). A hold that keeps nudging un-arrives other move spots and
-            # causes hold<->ward/advance bouncing — this is the core anti-churn fix.
-            if p.dist_xy(me, tx, ty) > 700:
-                return Proposal(0.2 * self.w(w), Move(tx, ty), self.name,
-                                f"move to hold near {carry.name}")
-            return Proposal(0.2 * self.w(w), Idle(), self.name,
-                            f"hold near {carry.name}")
-        return Proposal(0.1 * self.w(w), Idle(), self.name, "hold")
+        enemies = p.enemies()
+        # HOLD only when it makes sense: you're idle and there's no enemy you
+        # could move to engage. If an enemy is anywhere reachable, DON'T hold —
+        # yield to advance/engage so champions move toward the fight instead of
+        # standing around. (User: hold only if you can fight from here.)
+        if enemies:
+            ne = _nearest(me, enemies)
+            # an enemy already in your attack/ability range -> you CAN fight from
+            # here, holding position to attack is fine (very low score; combat
+            # behaviors will outscore it anyway)
+            if p.dist(me, ne) <= me.stats.attack_range * 1.2:
+                return Proposal(0.08 * self.w(w), Idle(), self.name,
+                                "hold and fight from here")
+            # enemy exists but out of range -> do NOT hold; let movement win
+            return None
+        # no enemies at all -> a tiny idle so the champ isn't erroring, nothing more
+        return Proposal(0.05 * self.w(w), Idle(), self.name, "idle (no enemies)")
 
 
 # =========================================================================

@@ -141,9 +141,25 @@ def balanced_5v5():
     red = [("Ahri", "ADC"), ("Lulu", "SUPPORT"), ("Ryze", "MID"),
            ("Darius", "TOP"), ("Leona", "JUNGLE")]
     _match_rng.seed()   # fresh randomness each match -> varied games
-    champs = [_at_base(n, "ALLY", r) for n, r in blue] + \
-             [_at_base(n, "ENEMY", r) for n, r in red]
-    return champs, 20, "Full 5v5 — spawn at base corners, march out, fight", None
+    # Start the teams PART-WAY OUT near mid so they clash within ~20s instead of
+    # spending 2.5 min walking from the corners (which looked like 'everyone just
+    # holds'). Respawns STILL return to the base corner (World sets it from the
+    # nexus), so death still costs the long walk back.
+    champs = []
+    for i, (name, role) in enumerate(blue):
+        off = (i - 2) * 240
+        champs.append(_c(name, "ALLY", role,
+                         6300 + off + _jit2(), 6300 - off + _jit2()))
+    for i, (name, role) in enumerate(red):
+        off = (i - 2) * 240
+        champs.append(_c(name, "ENEMY", role,
+                         8700 + off + _jit2(), 8700 - off + _jit2()))
+    return champs, 15, "Full 5v5 — start near mid, clash fast (respawn at base)", None
+
+
+def _jit2():
+    _jit_i[0] += 1
+    return ((_jit_i[0] * 211) % 300) - 150
 
 
 _jit_i = [0]

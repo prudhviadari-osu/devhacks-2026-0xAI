@@ -32,8 +32,8 @@ class UtilityAgent:
     # hysteresis: a NEW capability must beat the one we're committed to by this
     # fraction before we switch, and we hold a pick for a minimum time. Together
     # these stop the peel<->kite<->attack flip-flop (near-tied scores thrashing).
-    SWITCH_MARGIN = 0.20          # challenger must score 20% higher to steal
-    MIN_COMMIT_TICKS = 8          # ~0.8s at 10Hz before reconsidering a switch
+    SWITCH_MARGIN = 0.12          # challenger must score 12% higher to steal
+    MIN_COMMIT_TICKS = 5          # ~0.5s at 10Hz before reconsidering a switch
 
     def __init__(self, repertoire: list[Capability] | None = None,
                  weights: dict[str, float] | None = None,
@@ -128,6 +128,16 @@ class UtilityAgent:
         import random
         for pr in proposals:
             pr.score *= (1.0 + random.uniform(-0.04, 0.04))
+        # fallback: if nothing proposed (e.g. no enemies + already centered),
+        # idle in place rather than crash. Keeps the decide loop total.
+        if not proposals:
+            self._committed = "idle"
+            d = Decision(Idle(), "idle", "nothing to do", "", 0.0)
+            self.last = d
+            if self.learner is not None:
+                self.learner.observe(p.me, world, "idle")
+            return d
+
         proposals.sort(key=lambda pr: pr.score, reverse=True)
         top = proposals[0]
         best = self._apply_hysteresis(top, proposals)
@@ -155,8 +165,9 @@ class UtilityAgent:
     # behaviors that are low-urgency "positioning" — the churn-prone ones
     LOW_PRIORITY = {"hold", "advance", "ward", "group", "recall", "roam",
                     "last_hit", "push_wave", "freeze_wave", "spacing"}
-    HARD_DWELL = 12     # min ticks to keep a decision (unless an emergency)
-    EMERGENCY = 1.6     # a proposal this strong interrupts anything immediately
+    HARD_DWELL = 8      # min ticks to keep a decision (lowered — was too sticky)
+    EMERGENCY = 1.1     # a proposal this strong interrupts anything (lowered so
+                        # real fights/engages actually interrupt a wander)
 
     def _apply_hysteresis(self, top: Proposal,
                           proposals: list[Proposal]) -> Proposal:
@@ -183,8 +194,27 @@ class UtilityAgent:
 
         committed = by_name.get(self._committed)
 
-        # 2. within dwell: ABSOLUTELY keep the current decision. If the committed
-        # behavior vanished (move arrived), hold in place. No switching at all.
+        # HOLD is a fallback, not a sticky commitment: if we're holding and ANY
+        # real behavior (not another low-priority wander) wants to act, let it,
+        # immediately. This stops champions from settling into hold and never
+        # fighting. A meaningfully-scored non-wander challenger breaks hold now.
+        if self._committed == "hold":
+            best_real = max((pr for pr in proposals
+                             if pr.name not in self.LOW_PRIORITY),
+                            key=lambda pr: pr.score, default=None)
+            if best_real is not None and best_real.score > 0.4:
+                self._commit(best_real.name)
+                return best_real
+            # otherwise let a non-hold low-priority (advance/push/farm) take over
+            best_lp = max((pr for pr in proposals if pr.name != "hold"),
+                          key=lambda pr: pr.score, default=None)
+            if best_lp is not None and best_lp.score > 0.35:
+                self._commit(best_lp.name)
+                return best_lp
+            return hold_prop if hold_prop else top_raw
+
+        # 2. within dwell: keep the current decision. If the committed behavior
+        # vanished (move arrived), hold in place. No switching at all.
         if self._committed is not None and self._commit_ticks <= self.HARD_DWELL:
             if committed is not None:
                 return committed
@@ -205,10 +235,11 @@ class UtilityAgent:
             self._commit(chal.name)
             return chal
 
-        # both present: require a margin to switch; bigger if both low-priority
+        # both present: require a margin to switch; a bit bigger if both are
+        # low-priority wanders (just enough to stop churn, not so high it freezes)
         margin = self.SWITCH_MARGIN
         if self._committed in self.LOW_PRIORITY and chal.name in self.LOW_PRIORITY:
-            margin = 1.5     # low-priority wanders almost never steal from each other
+            margin = 0.5     # modest — damps churn without freezing into hold
         if chal.name != self._committed and \
                 chal.score > committed.score * (1 + margin):
             self._commit(chal.name)
