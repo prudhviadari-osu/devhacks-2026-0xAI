@@ -32,16 +32,30 @@ const PARTICLE = {
 };
 const particles = [];   // live particles {x,y,vx,vy,life,color}
 
-// emit n particles FROM the champion's world origin (wx,wy). Velocities are in
-// world units/frame, kept small so particles stay near the champion (drift out
-// a little then fade) instead of flying off screen.
-function emitParticles(wx, wy, name, n, speed) {
+// emit n particles EXACTLY at the champion's world origin (wx,wy) so frame 1
+// renders ON the champion, not beside it. Velocities are tiny (world
+// units/frame) so particles barely drift before fading — they never fly off.
+//
+// `speed` sets the (small) drift magnitude. Optional `dx,dy` is the champion's
+// current movement velocity: when given, the drift streams slightly OPPOSITE
+// that direction (a trail behind where the champ came from) plus a little
+// jitter. When omitted, drift is a tight near-zero puff centered on the champ.
+function emitParticles(wx, wy, name, n, speed, dx, dy) {
   const color = PARTICLE[name] || PARTICLE._default;
+  // base direction = opposite the champion's motion (normalized), if moving.
+  const mag = Math.hypot(dx || 0, dy || 0);
+  const hasDir = mag > 1e-3;
+  const bx = hasDir ? -(dx / mag) : 0;
+  const by = hasDir ? -(dy / mag) : 0;
   for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const sp = (0.3 + Math.random() * 0.7) * speed;   // world units / frame
-    particles.push({ x: wx, y: wy,
-      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, color });
+    // small jitter so particles aren't a single rigid line
+    const jx = (Math.random() - 0.5) * 2;
+    const jy = (Math.random() - 0.5) * 2;
+    // trail biases along the back-direction; puff is mostly jitter. Keep it
+    // small relative to the champion body so sparks stay on the champion.
+    const vx = (bx * 0.8 + jx * 0.4) * speed;
+    const vy = (by * 0.8 + jy * 0.4) * speed;
+    particles.push({ x: wx, y: wy, vx, vy, life: 1, color });
   }
 }
 
@@ -303,9 +317,11 @@ function render(snap) {
     // per-champion particles, ALWAYS from the champion's world origin (p.x,p.y):
     // a light trail when moving, a burst when attacking.
     if (moving && Math.random() < 0.5)
-      emitParticles(p.x, p.y, c.name, 1, 12);        // gentle drift near champ
+      // trail: born ON the champ, streams slightly behind its motion
+      emitParticles(p.x, p.y, c.name, 1, 3, p.sx, p.sy);
     if (c.attacking && Math.random() < 0.6)
-      emitParticles(p.x, p.y, c.name, 4, 22);        // tight attack burst
+      // attack burst: tight near-zero puff centered on the champ
+      emitParticles(p.x, p.y, c.name, 4, 2);
     const atkPulse = 1 + 0.35 * p.atk;
     // subtle walk bob when moving (frequency scales with move speed)
     const bob = moving ? 1 + 0.1 * Math.sin(perfNow() / (12000 / (c.move_speed||330))) : 1;
