@@ -57,6 +57,7 @@ class Learner:
     weights: dict[str, float] = field(default_factory=dict)
     beh_reward: dict[str, float] = field(default_factory=dict)  # EWMA per behavior
     last_behavior: str | None = None
+    rate: float = LEARN_RATE          # per-instance learn rate (trainer tunes it)
     # snapshots for computing reward deltas tick-to-tick
     _prev_hp: float = 1.0
     _prev_ally_hp: float = 1.0
@@ -157,7 +158,7 @@ class Learner:
             # move weight toward (baseline scaled by observed reward sign)
             # positive reward -> push above baseline; negative -> below
             target = base * (1.0 + r)
-            cur += LEARN_RATE * (target - cur)
+            cur += self.rate * (target - cur)
             # gentle pull back to baseline so identity persists
             cur += BASELINE_PULL * (base - cur)
             self.weights[beh] = max(WEIGHT_MIN, min(WEIGHT_MAX, cur))
