@@ -99,6 +99,9 @@ class World:
         self.fx = []   # clear last tick's effects; this tick refills it
         for c in self.champions:
             c.tick(TICK)
+            if c.alive:
+                c.time_alive += TICK
+                c.total_time_alive += TICK
             self._handle_respawn(c)
         self.objective.spawns_in = max(0.0, self.objective.spawns_in - TICK)
 
@@ -116,9 +119,31 @@ class World:
         # simple, readable curve: ~8s early, growing with match time
         return min(45.0, 6.0 + self.time * 0.02)
 
+    ASSIST_WINDOW = 10.0   # seconds: recent damagers get assist credit on a kill
+
+    def _award_kill(self, victim: Champion) -> None:
+        """On death, credit the killer (last damager) + assists (recent damagers)."""
+        recent = [(name, t) for name, t in victim.recent_damagers.items()
+                  if self.time - t <= self.ASSIST_WINDOW and name in self.by_name]
+        if not recent:
+            return
+        # killer = most recent damager
+        killer_name = max(recent, key=lambda nt: nt[1])[0]
+        killer = self.by_name[killer_name]
+        killer.kills += 1
+        killer.killstreak += 1
+        streak_txt = f" (streak {killer.killstreak})" if killer.killstreak >= 2 else ""
+        self.log.append(f"{killer_name} killed {victim.name}{streak_txt}")
+        # assists = other recent damagers on the killer's team
+        for name, _ in recent:
+            if name != killer_name and self.by_name[name].team == killer.team:
+                self.by_name[name].assists += 1
+
     def _handle_respawn(self, c: Champion) -> None:
         if c.dead:
             if c.respawn_timer <= 0.0:
+                c.deaths += 1
+                self._award_kill(c)                       # credit killer/assists
                 c.respawn_timer = self._respawn_time()   # just died -> start timer
                 self.log.append(f"{c.name} died (respawn in {c.respawn_timer:.0f}s)")
             else:
@@ -169,7 +194,8 @@ class World:
             return
         if dist(champ, target) > champ.stats.attack_range:
             return
-        dealt = target.take_damage(champ.stats.ad, "physical")
+        dealt = target.take_damage(champ.stats.ad, "physical",
+                                   source=champ.name, now=self.time)
         # attack cooldown = 1 / attack_speed
         champ.attack_cd = 1.0 / max(0.1, champ.stats.attack_speed)
         self.log.append(f"{champ.name} autos {target.name} for {dealt:.0f}")
@@ -195,7 +221,8 @@ class World:
         # damage
         dmg = ab.dmg(rank)  # (AP/AD ratios wire in with items; 0 bonus for v1)
         if dmg > 0 and target and target.team != champ.team:
-            dealt = target.take_damage(dmg, ab.damage_type)
+            dealt = target.take_damage(dmg, ab.damage_type,
+                                       source=champ.name, now=self.time)
             self.log.append(
                 f"{champ.name} {ab.slot} ({ab.name}) hits {target.name} "
                 f"for {dealt:.0f} {ab.damage_type}")

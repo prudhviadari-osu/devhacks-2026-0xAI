@@ -124,6 +124,15 @@ class Champion:
         self.gold = 500                 # starting gold (League-ish)
         self.cs = 0                     # creep score (minions last-hit)
         self.items: list = []           # inventory (filled by the shop)
+        # combat record (for reward + scoreboard)
+        self.kills = 0
+        self.deaths = 0
+        self.assists = 0
+        self.killstreak = 0             # current streak (resets on death)
+        self.time_alive = 0.0           # seconds alive this life (resets on death)
+        self.total_time_alive = 0.0     # cumulative across lives
+        # recent attackers: name -> game-time of last damage (for assist credit)
+        self.recent_damagers: dict[str, float] = {}
 
     # ---- queries ----
     @property
@@ -142,6 +151,9 @@ class Champion:
         self.cc_remaining = 0.0
         self.attack_cd = 0.0
         self.respawn_timer = 0.0
+        self.killstreak = 0           # streak resets on death
+        self.time_alive = 0.0         # this-life timer resets
+        self.recent_damagers = {}
         for k in self.cooldowns:
             self.cooldowns[k] = 0.0
 
@@ -156,8 +168,10 @@ class Champion:
         return self.attack_cd <= 0.0 and self.cc_remaining <= 0.0
 
     # ---- mutations the world applies ----
-    def take_damage(self, raw: float, damage_type: str) -> float:
-        """Apply raw damage through the right resistance; return actual dealt."""
+    def take_damage(self, raw: float, damage_type: str,
+                    source: str | None = None, now: float = 0.0) -> float:
+        """Apply raw damage through the right resistance; return actual dealt.
+        `source` (attacker name) + `now` (game time) record assist credit."""
         from model.stats import post_mitigation
         if damage_type == "true":
             dealt = raw
@@ -166,6 +180,8 @@ class Champion:
         else:  # magic
             dealt = post_mitigation(raw, self.stats.mr)
         self.hp = max(0.0, self.hp - dealt)
+        if source:
+            self.recent_damagers[source] = now
         return dealt
 
     def heal(self, amount: float) -> None:
