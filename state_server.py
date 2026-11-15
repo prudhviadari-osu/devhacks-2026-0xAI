@@ -109,7 +109,9 @@ class SimRunner:
                 "attacking": c.attack_cd > 0.01,   # mid-attack this tick (anim)
                 "learned": learned,
                 "kills": c.kills, "deaths": c.deaths, "assists": c.assists,
-                "streak": c.killstreak, "cs": c.cs,
+                "streak": c.killstreak, "cs": c.cs, "gold": c.gold,
+                "items": [it.name for it in c.items],
+                "ad": round(c.stats.ad), "ap": round(c.stats.ap),
             })
         minions = [{"team": m.team, "kind": m.kind, "x": m.x, "y": m.y,
                     "hp_frac": round(m.hp_frac, 2)}
@@ -148,6 +150,8 @@ class SimRunner:
             return {"kills": sum(c.kills for c in cs),
                     "deaths": sum(c.deaths for c in cs),
                     "assists": sum(c.assists for c in cs),
+                    "gold": sum(c.gold for c in cs),
+                    "dragons": getattr(w, f"_dragon_stacks_{team}", 0),
                     "nexus_hp": next((round(s.hp_frac, 2) for s in w.structures.structures
                                       if s.team == team and s.kind == "nexus"), 0)}
         o = w.objective

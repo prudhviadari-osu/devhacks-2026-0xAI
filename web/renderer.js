@@ -342,13 +342,18 @@ function render(snap) {
 
 function updateScore(snap) {
   const sc = snap.score; if (!sc) return;
-  const A = sc.ALLY, E = sc.ENEMY;
-  document.getElementById("sAllyK").textContent = `${A.kills}/${A.deaths}/${A.assists}`;
-  document.getElementById("sEnemyK").textContent = `${E.kills}/${E.deaths}/${E.assists}`;
-  document.getElementById("sAllyNx").textContent = `${(A.nexus_hp*100)|0}%`;
-  document.getElementById("sEnemyNx").textContent = `${(E.nexus_hp*100)|0}%`;
-  const wEl = document.getElementById("winner");
-  wEl.textContent = snap.winner ? `${snap.winner} WINS` : "";
+  const A = sc.ALLY, E = sc.ENEMY, $ = id => document.getElementById(id);
+  $("sAllyK").textContent = `${A.kills} / ${A.deaths} / ${A.assists}`;
+  $("sEnemyK").textContent = `${E.kills} / ${E.deaths} / ${E.assists}`;
+  $("sAllyNx").style.width = `${(A.nexus_hp*100)|0}%`;
+  $("sEnemyNx").style.width = `${(E.nexus_hp*100)|0}%`;
+  $("sAllyGold").textContent = (A.gold/1000).toFixed(1) + "k";
+  $("sEnemyGold").textContent = (E.gold/1000).toFixed(1) + "k";
+  $("sAllyDrg").textContent = A.dragons || 0;
+  $("sEnemyDrg").textContent = E.dragons || 0;
+  const t = snap.time | 0;
+  $("gametime").textContent = `${(t/60)|0}:${String(t%60).padStart(2,"0")}`;
+  $("winner").textContent = snap.winner ? `${snap.winner} WINS` : "";
 }
 
 function updateFeed(snap) {
@@ -361,7 +366,6 @@ function updatePanel(snap) {
   champsPanel.innerHTML = "";
   for (const c of snap.champions || []) {
     const div = document.createElement("div");
-    div.className = "champ";
     // "learned" drift: what this bot has adapted toward/away from
     const lr = c.learned || {};
     const fmt = arr => (arr || []).map(([k, v]) =>
@@ -371,12 +375,20 @@ function updatePanel(snap) {
       learnedHtml = `<div class="meta" style="color:#8fd3a0">learned+ ${fmt(lr.up)}</div>` +
                     `<div class="meta" style="color:#d38f8f">learned- ${fmt(lr.down)}</div>`;
     }
+    div.className = `champ ${c.team === "ALLY" ? "ally" : "enemy"}`;
+    const hpcol = c.hp_frac > 0.5 ? "#5fd27a" : c.hp_frac > 0.25 ? "#d4b24a" : "#e05a5a";
+    const items = (c.items || []).map(n =>
+      `<span class="item">${n.split(" ").map(w=>w[0]).join("")}</span>`).join("");
     div.innerHTML = `
       <div class="row1"><span class="nm tag-${c.team}">${c.name}</span>
-        <span class="meta">${c.alive ? "L"+c.level : "dead "+(c.dead_timer|0)+"s"}</span></div>
-      <div class="beh">\u2192 ${c.behavior || "—"}</div>
-      <div class="meta">${c.role} · hp ${(c.hp_frac*100|0)}%</div>
-      <div class="hpbar"><div style="width:${(c.hp_frac*100)|0}%"></div></div>
+        <span class="kda2">${c.alive ? c.kills+"/"+c.deaths+"/"+c.assists
+          : "\u2620 "+(c.dead_timer|0)+"s"}</span></div>
+      <div class="beh">\u2192 <b>${(c.behavior||"—").replace(" (gated)","")}</b></div>
+      <div class="hpbar"><div style="width:${(c.hp_frac*100)|0}%;background:${hpcol}"></div></div>
+      <div class="meta"><span>${c.role}</span><span class="g">${c.gold}g</span>
+        <span>AD ${c.ad||0}</span><span>AP ${c.ap||0}</span>
+        <span>cs ${c.cs||0}</span></div>
+      ${items ? `<div class="items">${items}</div>` : ""}
       ${learnedHtml}`;
     champsPanel.appendChild(div);
   }
