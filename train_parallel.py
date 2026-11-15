@@ -39,13 +39,20 @@ print = functools.partial(print, flush=True)
 import scenarios
 from agent2 import learning as L
 from agent2.learning import EWMA_ALPHA, LEARN_RATE, WEIGHT_MIN, WEIGHT_MAX, BASELINE_PULL
+from agent2 import watchdog
 from agent2.profiles import profile_for_champion, archetype_of
 from controllers.utility_bot import UtilityBotController
 from model.world import World
+# reuse train.py's frozen-benchmark mechanism so brains_benchmark/ and report.py
+# stay consistent across both trainers (same honest absolute metric).
+from train import snapshot_benchmark, BENCH_DIR
 
 BRAIN_DIR = L._BRAIN_DIR
 REPORT = os.path.join(os.path.dirname(__file__), "training_report.json")
 MAX_TICKS = 3000
+# games played against the frozen benchmark per eval. Kept small so --quick
+# stays fast while still giving a meaningful absolute winrate.
+EVAL_GAMES = 10
 
 
 def roster_keys():
@@ -82,8 +89,10 @@ def _worker_match(args) -> dict:
         world.step({n: ct.agent.last.action for n, ct in ctrls.items()})
         if world.structures.winner:
             break
-    # collect each champion's reward estimates + win/loss this match
-    out = {"winner": world.structures.winner, "rewards": {}}
+    # collect each champion's reward estimates + win/loss this match, plus
+    # behavior-switch telemetry (plain ints) so the main process can detect
+    # pathological looping. Everything here must stay picklable under spawn.
+    out = {"winner": world.structures.winner, "rewards": {}, "loop": {}}
     for n, ct in ctrls.items():
         if ct.agent.learner is None:
             continue
@@ -93,16 +102,55 @@ def _worker_match(args) -> dict:
             "beh_reward": ct.agent.learner.reward_snapshot()["beh_reward"],
             "won": won,
         }
+        tel = ct.agent.switch_telemetry()
+        out["loop"][key] = {"switches": int(tel["switches"]),
+                            "ticks": int(tel["ticks"])}
     return out
 
 
-def load_weights() -> dict:
-    """Current per-champion weights (baseline if no brain yet)."""
+# ---- worker: plays ONE match CURRENT (ALLY) vs FROZEN BENCHMARK (ENEMY) ----
+def _worker_eval_match(args) -> dict:
+    """Headless eval match: ally champs use the current weights, enemy champs
+    use the frozen benchmark weights, nobody learns. Returns plain picklable
+    data only (who won), so it is spawn-safe like _worker_match."""
+    current_weights, benchmark_weights, time_scale, seed = args
+    import random
+    random.seed(seed)
+    champs, ds, _, _ = scenarios.get("balanced")
+    world = World(champs, dragon_spawn=ds)
+    world.dt = 0.1 * time_scale
+    ctrls = {}
+    for ch in champs:
+        c = UtilityBotController(profile_for_champion(ch.name))
+        c.agent.learn = False
+        if c.agent.learner is not None:
+            key = ch.champion_key()
+            src = current_weights if ch.team == "ALLY" else benchmark_weights
+            # fall back to the baseline profile if this key is missing (e.g. an
+            # empty brains_benchmark on a fresh run).
+            if key in src:
+                c.agent.learner.weights.update(src[key])
+            c.agent.learner.rate = 0.0   # eval only, no self-update
+        ctrls[ch.name] = c
+    for _ in range(MAX_TICKS):
+        for n, ct in ctrls.items():
+            ct.decide(world, n)
+        world.step({n: ct.agent.last.action for n, ct in ctrls.items()})
+        if world.structures.winner:
+            break
+    return {"ally_win": bool(world.structures.winner == "ALLY"),
+            "winner": world.structures.winner}
+
+
+def load_weights_from(directory: str) -> dict:
+    """Per-champion weights loaded from a directory (baseline-merged, so a
+    missing brain falls back to the champion's baseline profile). Returns a
+    plain picklable dict[str, dict[str, float]]."""
     out = {}
     for key in roster_keys():
         base = profile_for_champion(key)
         w = dict(base)
-        path = os.path.join(BRAIN_DIR, f"{key}.json")
+        path = os.path.join(directory, f"{key}.json")
         if os.path.exists(path):
             try:
                 w.update(json.load(open(path)).get("weights", {}))
@@ -110,6 +158,11 @@ def load_weights() -> dict:
                 pass
         out[key] = w
     return out
+
+
+def load_weights() -> dict:
+    """Current per-champion weights (baseline if no brain yet)."""
+    return load_weights_from(BRAIN_DIR)
 
 
 def save_weights(weights: dict):
@@ -142,7 +195,10 @@ def apply_updates(weights: dict, agg: dict):
             weights[key][beh] = max(WEIGHT_MIN, min(WEIGHT_MAX, cur))
 
 
-def train(generations, matches_per_gen, speed, workers, eval_every):
+def train(generations, matches_per_gen, speed, workers, eval_every,
+          *, early_stop=True, loop_switch_rate=watchdog.LOOP_SWITCHES_PER_TICK_MAX,
+          plateau_window=watchdog.PLATEAU_WINDOW,
+          plateau_tol=watchdog.PLATEAU_TOLERANCE):
     keys = roster_keys()
     total = generations * matches_per_gen
     print(f"[parallel] roster: {keys}")
@@ -152,6 +208,11 @@ def train(generations, matches_per_gen, speed, workers, eval_every):
           f"= {total} matches, speed {speed}x\n")
 
     weights = load_weights()
+    # Freeze the current brains as the fixed benchmark ONCE, then capture its
+    # weights as a plain picklable dict so eval workers never touch the disk.
+    snapshot_benchmark()
+    benchmark_weights = load_weights_from(BENCH_DIR)
+    eval_every = max(1, eval_every)   # guard: eval at least every generation
     report = {"curve": [], "roster": keys}
     t0 = time.time()
     done = 0
@@ -159,8 +220,11 @@ def train(generations, matches_per_gen, speed, workers, eval_every):
     for gen in range(generations):
         frozen = {k: dict(v) for k, v in weights.items()}   # read-only snapshot
         jobs = [(frozen, speed, gen * 1000 + i) for i in range(matches_per_gen)]
-        # aggregate rewards per champion across all parallel matches
+        # aggregate rewards per champion across all parallel matches, and
+        # accumulate switch/tick totals per champion for the looping detector
         agg = defaultdict(lambda: defaultdict(list))
+        loop_switches = defaultdict(int)
+        loop_ticks = defaultdict(int)
         wins = 0
         with ProcessPoolExecutor(max_workers=workers) as ex:
             for res in ex.map(_worker_match, jobs):
@@ -169,6 +233,11 @@ def train(generations, matches_per_gen, speed, workers, eval_every):
                 for key, r in res["rewards"].items():
                     for beh, val in r["beh_reward"].items():
                         agg[key][beh].append(val)
+                # only count matches long enough to make a switch rate meaningful
+                for key, tel in res.get("loop", {}).items():
+                    if tel["ticks"] >= watchdog.LOOP_MIN_TICKS:
+                        loop_switches[key] += tel["switches"]
+                        loop_ticks[key] += tel["ticks"]
         apply_updates(weights, agg)
         save_weights(weights)
         done += matches_per_gen
@@ -177,10 +246,65 @@ def train(generations, matches_per_gen, speed, workers, eval_every):
         rate = done / elapsed
         eta = (total - done) / rate if rate > 0 else 0
         wr = wins / matches_per_gen
-        report["curve"].append({"gen": gen, "match": done, "ally_winrate": wr})
+
+        # Benchmark eval: every eval_every generations and always on the final
+        # generation, measure the CURRENT field vs the FROZEN benchmark. This is
+        # the honest absolute improvement signal (ally_winrate alone is a
+        # trained-vs-trained mirror metric that hovers near 0.5). Eval games are
+        # fanned across the same worker pool. Keep ally_winrate on EVERY curve
+        # point so the plateau watchdog (which reads p["ally_winrate"]) is safe.
+        is_eval_gen = (gen % eval_every == 0) or (gen == generations - 1)
+        if is_eval_gen:
+            cur_frozen = {k: dict(v) for k, v in weights.items()}
+            eval_jobs = [(cur_frozen, benchmark_weights, speed,
+                          gen * 1000 + 500 + i) for i in range(EVAL_GAMES)]
+            bench_wins = 0
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for res in ex.map(_worker_eval_match, eval_jobs):
+                    if res["ally_win"]:
+                        bench_wins += 1
+            wr_bench = bench_wins / EVAL_GAMES
+            report["curve"].append({"gen": gen, "match": done,
+                                    "winrate_vs_benchmark": wr_bench,
+                                    "ally_winrate": wr})
+        else:
+            report["curve"].append({"gen": gen, "match": done,
+                                    "ally_winrate": wr})
         json.dump(report, open(REPORT, "w"), indent=1)
         print(f"  [gen {gen:3d} | {done}/{total} matches] ally winrate={wr:.2f} "
               f"| {rate:.1f} matches/s | elapsed {_fmt(elapsed)}, ETA {_fmt(eta)}")
+        if is_eval_gen:
+            print(f"  [gen {gen} | eval] winrate vs benchmark = {wr_bench:.2f} "
+                  f"(over {EVAL_GAMES} games)")
+
+        # per-generation watchdog: stop the whole run if the field is looping
+        # or the learning curve has plateaued. Progress so far is already saved.
+        if early_stop:
+            rates = {k: loop_switches[k] / max(1, loop_ticks[k])
+                     for k in loop_switches}
+            loop_fired, _, loop_detail = watchdog.looping_signal(
+                rates, max_rate=loop_switch_rate)
+            curve_vals = [p["ally_winrate"] for p in report["curve"]]
+            plat_fired, plat_detail = watchdog.plateau_signal(
+                curve_vals, window=plateau_window, tolerance=plateau_tol)
+            if loop_fired or plat_fired:
+                if loop_fired:
+                    kind, detail = "behavior_looping", loop_detail
+                    msg = f"stopped: behavior looping detected - {detail}"
+                else:
+                    kind, detail = "learning_plateau", plat_detail
+                    msg = (f"stopped: learning plateaued over {plateau_window} "
+                           f"generations - {detail}")
+                save_weights(weights)
+                report["stopped_reason"] = {"kind": kind, "detail": detail,
+                                            "generation": gen}
+                report["total_matches"] = done
+                report["seconds"] = round(time.time() - t0, 1)
+                json.dump(report, open(REPORT, "w"), indent=1)
+                print(f"\n[parallel] {msg}")
+                print(f"[parallel] saved brains -> {BRAIN_DIR}/  "
+                      f"(run report.py to inspect)")
+                return
 
     report["total_matches"] = done
     report["seconds"] = round(time.time() - t0, 1)
@@ -205,10 +329,27 @@ if __name__ == "__main__":
                          "Mac stays responsive while training)")
     ap.add_argument("--eval-every", type=int, default=5)
     ap.add_argument("--quick", action="store_true")
+    # watchdog / early-stop tunables (defaults from agent2.watchdog)
+    ap.add_argument("--no-early-stop", action="store_true",
+                    help="disable the behavior-looping and plateau detectors")
+    ap.add_argument("--loop-switch-rate", type=float,
+                    default=watchdog.LOOP_SWITCHES_PER_TICK_MAX,
+                    help="mean switches/tick at or above which looping fires")
+    ap.add_argument("--plateau-window", type=int,
+                    default=watchdog.PLATEAU_WINDOW,
+                    help="trailing curve points the plateau detector inspects")
+    ap.add_argument("--plateau-tol", type=float,
+                    default=watchdog.PLATEAU_TOLERANCE,
+                    help="max windowed spread treated as a plateau")
     a = ap.parse_args()
     free = max(1, (os.cpu_count() or 2) - 1)
+    wd = dict(early_stop=not a.no_early_stop,
+              loop_switch_rate=a.loop_switch_rate,
+              plateau_window=a.plateau_window,
+              plateau_tol=a.plateau_tol)
     if a.quick:
         train(generations=3, matches_per_gen=8, speed=3.0,
-              workers=free, eval_every=1)
+              workers=free, eval_every=1, **wd)
     else:
-        train(a.generations, a.matches_per_gen, a.speed, a.workers, a.eval_every)
+        train(a.generations, a.matches_per_gen, a.speed, a.workers,
+              a.eval_every, **wd)

@@ -38,6 +38,7 @@ print = functools.partial(print, flush=True)
 
 import scenarios
 from agent2 import learning as L
+from agent2 import watchdog
 from agent2.profiles import profile_for_champion, archetype_of
 from controllers.utility_bot import UtilityBotController
 from model.world import World
@@ -72,12 +73,17 @@ MAX_TICKS = 3000     # hard cap so a match can't drag forever
 
 
 def play_match(focus: str | None, focus_rate: float, bg_rate: float,
-               learn: bool = True, time_scale: float = TIME_SCALE) -> str | None:
+               learn: bool = True, time_scale: float = TIME_SCALE,
+               collect_loop: bool = False):
     """Run one headless match FAST by scaling the sim's time step. A real match
     is the sim at dt=0.1; here we use dt=0.1*time_scale so the identical game
     plays out in far fewer steps (cost is proportional to step count). Decision
-    LOGIC is unchanged — it's the real game at a coarser clock, like fast-forward.
-    Returns the winner."""
+    LOGIC is unchanged, it's the real game at a coarser clock, like fast-forward.
+
+    Returns the winner by default. When collect_loop is True, returns instead a
+    dict {champ_key: switches_per_tick} of per-champion behavior-switch rates
+    for this match, so the training loop can feed the looping detector. Existing
+    callers (eval, warmups) leave collect_loop False and keep the winner."""
     champs, ds, _, _ = scenarios.get("balanced")
     world = World(champs, dragon_spawn=ds)
     world.dt = 0.1 * time_scale          # fast-forward clock
@@ -102,6 +108,13 @@ def play_match(focus: str | None, focus_rate: float, bg_rate: float,
             won = (champ is not None and world.structures.winner is not None
                    and champ.team == world.structures.winner)
             ct.agent.end_match(won)   # saves brain + records win/loss meta
+    if collect_loop:
+        rates = {}
+        for ch in champs:
+            ct = ctrls[ch.name]
+            tel = ct.agent.switch_telemetry()
+            rates[ch.champion_key()] = tel["switches"] / max(1, tel["ticks"])
+        return rates
     return world.structures.winner
 
 
@@ -158,7 +171,14 @@ def _load_from(learner, key, directory):
             pass
 
 
-def train(cycles: int, block: int, eval_every: int):
+class _EarlyStop(Exception):
+    """Raised to break cleanly out of the focus/block/cycle loops on a stop."""
+
+
+def train(cycles: int, block: int, eval_every: int, *, early_stop: bool = True,
+          loop_switch_rate: float = watchdog.LOOP_SWITCHES_PER_TICK_MAX,
+          plateau_window: int = watchdog.PLATEAU_WINDOW,
+          plateau_tol: float = watchdog.PLATEAU_TOLERANCE):
     names = []
     for n in roster():
         key = n.rstrip("0123456789")
@@ -190,29 +210,79 @@ def train(cycles: int, block: int, eval_every: int):
     t0 = time.time()
     match_count = 2   # count the warmups
 
-    for cycle in range(cycles):
-        for champ in names:
-            for _ in range(block):
-                play_match(focus=champ, focus_rate=FOCUS_RATE,
-                           bg_rate=BACKGROUND_RATE)
-                match_count += 1
-                if match_count % eval_every == 0:
-                    wr = eval_vs_benchmark(games=12)
-                    elapsed = time.time() - t0
-                    report["curve"].append(
-                        {"match": match_count, "winrate_vs_benchmark": wr,
-                         "cycle": cycle, "focus": champ})
-                    # live ETA from actual pace so far
-                    frac = match_count / max(1, total_matches)
-                    eta = (elapsed / frac - elapsed) if frac > 0 else 0
-                    print(f"  [{match_count:5d}/{total_matches} | cycle {cycle} | "
-                          f"focus {champ:7}] winrate vs benchmark = {wr:.2f}  "
-                          f"| elapsed {_fmt_time(elapsed)}, ETA {_fmt_time(eta)}")
-                    # write report incrementally so an interrupted run keeps data
-                    with open(REPORT, "w") as f:
-                        json.dump(report, f, indent=1)
-            print(f"[cycle {cycle}] finished training {champ}")
-        print(f"=== cycle {cycle} complete ===\n")
+    # per-champion switch telemetry accumulated across the matches since the
+    # last eval; reset each eval so the looping signal reflects recent play.
+    loop_switches: dict[str, float] = {}
+    loop_ticks: dict[str, int] = {}
+
+    try:
+        for cycle in range(cycles):
+            for champ in names:
+                for _ in range(block):
+                    rates = play_match(focus=champ, focus_rate=FOCUS_RATE,
+                                       bg_rate=BACKGROUND_RATE, collect_loop=True)
+                    match_count += 1
+                    # accumulate this match's switch rate per champion so the
+                    # looping detector sees the field since the last eval.
+                    for key, rate in rates.items():
+                        loop_switches[key] = loop_switches.get(key, 0.0) + rate
+                        loop_ticks[key] = loop_ticks.get(key, 0) + 1
+                    if match_count % eval_every == 0:
+                        wr = eval_vs_benchmark(games=12)
+                        elapsed = time.time() - t0
+                        report["curve"].append(
+                            {"match": match_count, "winrate_vs_benchmark": wr,
+                             "cycle": cycle, "focus": champ})
+                        # live ETA from actual pace so far
+                        frac = match_count / max(1, total_matches)
+                        eta = (elapsed / frac - elapsed) if frac > 0 else 0
+                        print(f"  [{match_count:5d}/{total_matches} | cycle {cycle} | "
+                              f"focus {champ:7}] winrate vs benchmark = {wr:.2f}  "
+                              f"| elapsed {_fmt_time(elapsed)}, ETA {_fmt_time(eta)}")
+                        # write report incrementally so an interrupted run keeps data
+                        with open(REPORT, "w") as f:
+                            json.dump(report, f, indent=1)
+
+                        # watchdog: stop the whole run if the field is looping
+                        # or the benchmark curve has plateaued. Brains are
+                        # already persisted per match via end_match.
+                        if early_stop:
+                            cur_rates = {k: loop_switches[k] / max(1, loop_ticks[k])
+                                         for k in loop_switches}
+                            loop_fired, _, loop_detail = watchdog.looping_signal(
+                                cur_rates, max_rate=loop_switch_rate)
+                            curve_vals = [p["winrate_vs_benchmark"]
+                                          for p in report["curve"]]
+                            plat_fired, plat_detail = watchdog.plateau_signal(
+                                curve_vals, window=plateau_window,
+                                tolerance=plateau_tol)
+                            if loop_fired or plat_fired:
+                                if loop_fired:
+                                    kind, detail = "behavior_looping", loop_detail
+                                    msg = (f"stopped: behavior looping detected "
+                                           f"- {detail}")
+                                else:
+                                    kind, detail = "learning_plateau", plat_detail
+                                    msg = (f"stopped: learning plateaued over "
+                                           f"{plateau_window} generations - {detail}")
+                                report["stopped_reason"] = {
+                                    "kind": kind, "detail": detail,
+                                    "match": match_count}
+                                report["total_matches"] = match_count
+                                report["seconds"] = round(time.time() - t0, 1)
+                                with open(REPORT, "w") as f:
+                                    json.dump(report, f, indent=1)
+                                print(f"\n[train] {msg}")
+                                print(f"[train] saved brains -> {BRAIN_DIR}/  "
+                                      f"(run report.py to inspect)")
+                                raise _EarlyStop()
+                        # reset the window so looping reflects recent matches
+                        loop_switches.clear()
+                        loop_ticks.clear()
+                print(f"[cycle {cycle}] finished training {champ}")
+            print(f"=== cycle {cycle} complete ===\n")
+    except _EarlyStop:
+        return
 
     report["total_matches"] = match_count
     report["seconds"] = round(time.time() - t0, 1)
@@ -238,10 +308,27 @@ if __name__ == "__main__":
                     help="hard cap on match length in ticks")
     ap.add_argument("--quick", action="store_true",
                     help="short sanity run (2 cycles x 15 matches)")
+    # watchdog / early-stop tunables (defaults from agent2.watchdog)
+    ap.add_argument("--no-early-stop", action="store_true",
+                    help="disable the behavior-looping and plateau detectors")
+    ap.add_argument("--loop-switch-rate", type=float,
+                    default=watchdog.LOOP_SWITCHES_PER_TICK_MAX,
+                    help="mean switches/tick at or above which looping fires")
+    ap.add_argument("--plateau-window", type=int,
+                    default=watchdog.PLATEAU_WINDOW,
+                    help="trailing curve points the plateau detector inspects")
+    ap.add_argument("--plateau-tol", type=float,
+                    default=watchdog.PLATEAU_TOLERANCE,
+                    help="max windowed spread treated as a plateau")
     args = ap.parse_args()
     TIME_SCALE = args.speed
     MAX_TICKS = args.max_ticks
+    wd = dict(early_stop=not args.no_early_stop,
+              loop_switch_rate=args.loop_switch_rate,
+              plateau_window=args.plateau_window,
+              plateau_tol=args.plateau_tol)
     if args.quick:
-        train(cycles=2, block=15, eval_every=10)
+        train(cycles=2, block=15, eval_every=10, **wd)
     else:
-        train(cycles=args.cycles, block=args.block, eval_every=args.eval_every)
+        train(cycles=args.cycles, block=args.block,
+              eval_every=args.eval_every, **wd)

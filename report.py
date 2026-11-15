@@ -29,17 +29,32 @@ def ascii_curve(points):
             line += "#" if v >= thresh else " "
         out.append(line)
     out.append("     +" + "-" * len(vals))
-    out.append(f"      0 matches -> {points[-1]['match']}  "
-               f"(each col = one eval; 0.5 line = even with benchmark)")
+    if key == "winrate_vs_benchmark":
+        tail = "(each col = one eval; 0.5 line = even with benchmark)"
+    else:
+        tail = "(each col = one eval; 0.5 line = even mirror match (self-play))"
+    out.append(f"      0 matches -> {points[-1]['match']}  {tail}")
     return "\n".join(out)
 
 
 def main():
     if os.path.exists(REPORT):
         rep = json.load(open(REPORT))
-        print("=== TRAINING CURVE (winrate of trained brains vs frozen benchmark) ===")
-        print(ascii_curve(rep.get("curve", [])))
         c = rep.get("curve", [])
+        # Drive the header off the same key auto-detection ascii_curve() uses.
+        # The parallel trainer plots ally_winrate (a trained-vs-trained mirror /
+        # self-play metric that hovers near 0.5), which is NOT an absolute
+        # improvement signal, so do not claim it is vs the frozen benchmark.
+        if c and "winrate_vs_benchmark" in c[0]:
+            header = ("=== TRAINING CURVE (winrate of trained brains vs "
+                      "frozen benchmark) ===")
+        elif c:
+            header = ("=== TRAINING CURVE (trained-vs-trained mirror winrate, "
+                      "self-play, NOT vs benchmark) ===")
+        else:
+            header = "=== TRAINING CURVE ==="
+        print(header)
+        print(ascii_curve(c))
         if c:
             last = c[-1]
             if "winrate_vs_benchmark" in last:
