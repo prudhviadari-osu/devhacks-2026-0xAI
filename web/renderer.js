@@ -36,34 +36,42 @@ resize();
 const cam = { cx: 7500, cy: 7500, view: MAP, tcx: 7500, tcy: 7500, tview: MAP };
 let autoCam = true;   // toggle with the button; false = whole-map overview
 
+const CLUSTER_RADIUS = 3500;   // champs within this of a seed are "together"
+const PADDING = 2800;          // extra world units around the group (spacing)
+const MIN_VIEW = 4500;         // never zoom in tighter than this (avoids blob)
+
 function updateCamera(snap) {
-  if (!autoCam) { cam.tcx = MAP/2; cam.tcy = MAP/2; cam.tview = MAP; }
-  else {
-    const champs = (snap.champions || []).filter(c => c.alive);
-    if (champs.length) {
-      // weight the center toward where FIGHTING is (champs near enemies),
-      // else just the centroid of everyone
-      let wsum = 0, cx = 0, cy = 0;
-      let minx=1e9, miny=1e9, maxx=-1e9, maxy=-1e9;
-      for (const c of champs) {
-        // weight: in-combat champs (low-ish hp or many neighbors) count more
-        const near = champs.filter(o => o !== c &&
-          (o.x-c.x)**2 + (o.y-c.y)**2 < 2500**2).length;
-        const wgt = 1 + near + (c.hp_frac < 0.9 ? 2 : 0);
-        wsum += wgt; cx += c.x * wgt; cy += c.y * wgt;
-        minx=Math.min(minx,c.x); maxx=Math.max(maxx,c.x);
-        miny=Math.min(miny,c.y); maxy=Math.max(maxy,c.y);
-      }
-      cam.tcx = cx / wsum; cam.tcy = cy / wsum;
-      // frame the spread of champions with padding, clamped to a zoom range
-      const spread = Math.max(maxx-minx, maxy-miny) + 2600;
-      cam.tview = Math.max(3500, Math.min(MAP, spread));
+  const champs = (snap.champions || []).filter(c => c.alive);
+  if (!autoCam || champs.length === 0) {
+    cam.tcx = MAP/2; cam.tcy = MAP/2; cam.tview = MAP;
+  } else {
+    // Find the champion whose neighborhood contains the MOST champions — that
+    // is 'where the most people are' (the main action). Frame that group.
+    let bestSeed = champs[0], bestCount = -1;
+    for (const c of champs) {
+      const cnt = champs.filter(o =>
+        (o.x-c.x)**2 + (o.y-c.y)**2 < CLUSTER_RADIUS**2).length;
+      if (cnt > bestCount) { bestCount = cnt; bestSeed = c; }
     }
+    // the group = everyone near that seed; frame exactly them
+    const group = champs.filter(o =>
+      (o.x-bestSeed.x)**2 + (o.y-bestSeed.y)**2 < (CLUSTER_RADIUS*1.3)**2);
+    let minx=1e9, miny=1e9, maxx=-1e9, maxy=-1e9, sx=0, sy=0;
+    for (const c of group) {
+      minx=Math.min(minx,c.x); maxx=Math.max(maxx,c.x);
+      miny=Math.min(miny,c.y); maxy=Math.max(maxy,c.y);
+      sx+=c.x; sy+=c.y;
+    }
+    cam.tcx = (minx+maxx)/2; cam.tcy = (miny+maxy)/2;
+    // zoom to fit the group's extent + padding; MIN_VIEW stops it over-zooming
+    // onto a tight pile (so you see spacing, not a blob)
+    const extent = Math.max(maxx-minx, maxy-miny) + PADDING * 2;
+    cam.tview = Math.max(MIN_VIEW, Math.min(MAP, extent));
   }
-  // smooth toward targets (lerp) so the camera glides, never jumps
-  cam.cx += (cam.tcx - cam.cx) * 0.08;
-  cam.cy += (cam.tcy - cam.cy) * 0.08;
-  cam.view += (cam.tview - cam.view) * 0.06;
+  // smooth toward targets so the camera glides
+  cam.cx += (cam.tcx - cam.cx) * 0.07;
+  cam.cy += (cam.tcy - cam.cy) * 0.07;
+  cam.view += (cam.tview - cam.view) * 0.05;
 }
 
 // world (0..MAP, y-up) -> screen (pixels, y-down) through the camera

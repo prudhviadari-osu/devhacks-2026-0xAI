@@ -125,6 +125,11 @@ class World:
                 continue
             self._apply(champ, action)
 
+        # soft separation so champions don't stack into a single blob
+        for c in self.champions:
+            if c.alive:
+                self._separate(c)
+
         # minions march/fight, towers shoot, after champions act
         self.minions.update(self, TICK)
         self.structures.update(self, TICK)
@@ -202,6 +207,23 @@ class World:
         # keep champions on the map (defensive clamp)
         champ.x = max(0.0, min(MAP_SIZE, champ.x))
         champ.y = max(0.0, min(MAP_SIZE, champ.y))
+
+    def _separate(self, champ: Champion) -> None:
+        """Soft collision: nudge champions apart so they don't stack into one
+        blob. Keeps a minimum spacing so the camera shows distinct bodies."""
+        MIN_SEP = 220.0
+        for other in self.champions:
+            if other is champ or not other.alive:
+                continue
+            dx, dy = champ.x - other.x, champ.y - other.y
+            d2 = dx * dx + dy * dy
+            if 1e-6 < d2 < MIN_SEP * MIN_SEP:
+                d = d2 ** 0.5
+                push = (MIN_SEP - d) * 0.5
+                champ.x += dx / d * push
+                champ.y += dy / d * push
+                champ.x = max(0.0, min(MAP_SIZE, champ.x))
+                champ.y = max(0.0, min(MAP_SIZE, champ.y))
 
     def _auto(self, champ: Champion, target_name: str) -> None:
         # special: attack the nearest attackable enemy structure
