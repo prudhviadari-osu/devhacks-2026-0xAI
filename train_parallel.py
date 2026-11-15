@@ -146,8 +146,10 @@ def train(generations, matches_per_gen, speed, workers, eval_every):
     keys = roster_keys()
     total = generations * matches_per_gen
     print(f"[parallel] roster: {keys}")
+    print(f"[parallel] using {workers} of {os.cpu_count()} cores "
+          f"(1 left free for you)")
     print(f"[parallel] {generations} generations x {matches_per_gen} matches "
-          f"= {total} matches on up to {workers} cores, speed {speed}x\n")
+          f"= {total} matches, speed {speed}x\n")
 
     weights = load_weights()
     report = {"curve": [], "roster": keys}
@@ -198,12 +200,15 @@ if __name__ == "__main__":
     ap.add_argument("--generations", type=int, default=40)
     ap.add_argument("--matches-per-gen", type=int, default=24)
     ap.add_argument("--speed", type=float, default=3.0)
-    ap.add_argument("--workers", type=int, default=os.cpu_count())
+    ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1),
+                    help="worker processes (default: all cores minus 1, so your "
+                         "Mac stays responsive while training)")
     ap.add_argument("--eval-every", type=int, default=5)
     ap.add_argument("--quick", action="store_true")
     a = ap.parse_args()
+    free = max(1, (os.cpu_count() or 2) - 1)
     if a.quick:
         train(generations=3, matches_per_gen=8, speed=3.0,
-              workers=os.cpu_count(), eval_every=1)
+              workers=free, eval_every=1)
     else:
         train(a.generations, a.matches_per_gen, a.speed, a.workers, a.eval_every)
