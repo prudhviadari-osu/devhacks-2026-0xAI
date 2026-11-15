@@ -93,6 +93,11 @@ class UtilityAgent:
             self.last = d
             return d
 
+        # tiny decision noise so near-tied choices aren't perfectly deterministic
+        # -> matches play out with natural variety (not the exact same game twice)
+        import random
+        for pr in proposals:
+            pr.score *= (1.0 + random.uniform(-0.04, 0.04))
         proposals.sort(key=lambda pr: pr.score, reverse=True)
         top = proposals[0]
         best = self._apply_hysteresis(top, proposals)

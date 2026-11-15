@@ -692,7 +692,8 @@ class SiegeStructure(Capability):
     behavior that targets STRUCTURES — how the game is actually won. Scores
     higher when safe (few enemies near) so champs don't suicide into a tower."""
     name, family = "siege", "MACRO"
-    phases = (Phase.LANING, Phase.OBJECTIVE, Phase.SKIRMISH, Phase.TEAMFIGHT)
+    phases = (Phase.LANING, Phase.OBJECTIVE, Phase.SKIRMISH, Phase.TEAMFIGHT,
+              Phase.RETREAT, Phase.RESET)
 
     def propose(self, p, w):
         me = p.me
@@ -709,23 +710,32 @@ class SiegeStructure(Capability):
         enemies_alive = len(p.enemies())
         total_enemies = sum(1 for c in p.world.champions if c.team != me.team)
         ace_window = total_enemies > 0 and enemies_alive <= total_enemies - 3
-        if ace_window:
-            if p.dist(me, s) <= me.stats.attack_range:
-                return Proposal(2.4, Auto("__struct__"), self.name,
-                                "enemies down — END IT", comms="They're dead, push!")
-            return Proposal(2.2, Move(s.x, s.y), self.name, "push while enemies dead")
+        # the enemy NEXUS is exposed -> closing it out is the single top play
+        nexus = sm.nexus(me.team == "ALLY" and "ENEMY" or "ALLY")
+        nexus_exposed = (nexus is not None and nexus.alive
+                         and sm.attackable(nexus))
+        if ace_window or nexus_exposed:
+            target = nexus if nexus_exposed else s
+            if p.dist(me, target) <= me.stats.attack_range:
+                return Proposal(3.5, Auto("__struct__"), self.name,
+                                "CLOSE OUT — end the game", comms="End it, push nexus!")
+            return Proposal(3.2, Move(target.x, target.y), self.name,
+                            "rush to end the game")
         # safety check relaxes as pressure rises (late game = commit to ending)
         enemies_near = sum(1 for e in p.enemies() if p.dist(e, s) < 1800)
         allies_near = len([a for a in p.allies() if p.dist(a, s) < 1800]) + 1
         if enemies_near > allies_near + 1 + int(pressure * 2):
             return None
-        boost = 0.6 + 1.4 * pressure        # 0.6 early -> 2.0 late
+        # stronger pull so champions actually commit to pushing (not endless
+        # mid-brawl). A nexus is worth even more than a tower.
+        nexus_bonus = 0.8 if s.kind == "nexus" else 0.0
+        boost = 0.9 + 1.5 * pressure + nexus_bonus     # ~0.9 early -> 2.4+ late
         if d <= me.stats.attack_range:
-            return Proposal(boost * self.w(w, 0.8), Auto("__struct__"), self.name,
+            return Proposal(boost * self.w(w, 0.9), Auto("__struct__"), self.name,
                             f"attack {s.team} {s.lane} "
                             f"{'nexus' if s.kind=='nexus' else 'tower'}")
-        if d < 4000:
-            return Proposal((boost - 0.1) * self.w(w, 0.8), Move(s.x, s.y),
+        if d < 5000:
+            return Proposal((boost - 0.1) * self.w(w, 0.9), Move(s.x, s.y),
                             self.name, f"push {s.team} {s.lane} structure")
         return None
 

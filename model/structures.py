@@ -19,8 +19,8 @@ TOWER_DAMAGE = 140.0          # per shot; ramps on champions in real LoL (simpli
 TOWER_ATTACK_CD = 1.0
 # HP tuned so sieges resolve within a sim session (real LoL towers are tankier;
 # scaled down so you can watch a full game end on a nexus kill).
-TOWER_HP = 1100.0
-NEXUS_HP = 1800.0
+TOWER_HP = 1050.0
+NEXUS_HP = 1700.0
 
 
 @dataclass
@@ -135,6 +135,14 @@ class StructureManager:
         if not s.alive:
             return False
         if s.kind == "nexus":
+            # nexus is exposed once a LANE is fully broken (both its towers down),
+            # not only when every tower on the map is gone — matches how a real
+            # push opens the base, and lets games actually end.
+            for lane in ("TOP", "MID", "BOT"):
+                lane_towers = [t for t in self.structures if t.team == s.team
+                               and t.kind == "tower" and t.lane == lane]
+                if lane_towers and all(not t.alive for t in lane_towers):
+                    return True
             return len(self.towers(s.team)) == 0
         if s.tier == 1:
             return True
@@ -150,6 +158,11 @@ class StructureManager:
                 self.winner = "ENEMY" if team == "ALLY" else "ALLY"
 
     def nearest_attackable_enemy_structure(self, champ):
+        # if the enemy nexus is exposed, prioritize it (close out the game)
+        enemy_team = "ENEMY" if champ.team == "ALLY" else "ALLY"
+        nx = self.nexus(enemy_team)
+        if nx is not None and nx.alive and self.attackable(nx):
+            return nx
         best, bd = None, float("inf")
         for s in self.structures:
             if s.team != champ.team and self.attackable(s):

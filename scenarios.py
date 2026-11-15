@@ -35,13 +35,15 @@ def _c(name, team, role, x, y, level=9, hp_frac=1.0):
 BASE = {"ALLY": (1000, 1000), "ENEMY": (14000, 14000)}
 
 
+import random as _random
+_match_rng = _random.Random()   # reseeded per match for variety
+
+
 def _at_base(name, team, role, level=9):
     """Create a champion AT its team's base corner (how a real match starts)."""
     bx, by = BASE[team]
-    # small spread so they're not perfectly stacked on the nexus
-    import random
-    rng = random.Random(hash(name) & 0xffff)
-    ox, oy = rng.randint(-400, 400), rng.randint(-400, 400)
+    # random spread each match so games play out differently (not deterministic)
+    ox, oy = _match_rng.randint(-600, 600), _match_rng.randint(-600, 600)
     return _c(name, team, role, bx + ox, by + oy, level=level)
 
 
@@ -134,6 +136,7 @@ def balanced_5v5():
             ("Darius", "TOP"), ("Zac", "JUNGLE")]
     red = [("Ahri", "ADC"), ("Lulu", "SUPPORT"), ("Lux", "MID"),
            ("Jax", "TOP"), ("Leona", "JUNGLE")]
+    _match_rng.seed()   # fresh randomness each match -> varied games
     champs = [_at_base(n, "ALLY", r) for n, r in blue] + \
              [_at_base(n, "ENEMY", r) for n, r in red]
     return champs, 20, "Full 5v5 — spawn at base corners, march out, fight", None
