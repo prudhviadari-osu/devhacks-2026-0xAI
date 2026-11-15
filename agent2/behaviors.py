@@ -634,7 +634,8 @@ class SiegeStructure(Capability):
     """Push: attack the nearest attackable enemy tower/nexus. Unique: the only
     behavior that targets STRUCTURES — how the game is actually won. Scores
     higher when safe (few enemies near) so champs don't suicide into a tower."""
-    name, family, phases = "siege", "MACRO", (Phase.LANING, Phase.OBJECTIVE)
+    name, family = "siege", "MACRO"
+    phases = (Phase.LANING, Phase.OBJECTIVE, Phase.SKIRMISH, Phase.TEAMFIGHT)
 
     def propose(self, p, w):
         me = p.me
@@ -645,18 +646,30 @@ class SiegeStructure(Capability):
         if s is None:
             return None
         d = p.dist(me, s)
-        # only push when relatively safe (don't dive a defended tower)
+        # match pressure ramps push urgency over the game so it actually ends
+        pressure = getattr(p.world, "match_pressure", 0.0)
+        # if most enemies are DEAD, it's the window to push/end — override safety
+        enemies_alive = len(p.enemies())
+        total_enemies = sum(1 for c in p.world.champions if c.team != me.team)
+        ace_window = total_enemies > 0 and enemies_alive <= total_enemies - 3
+        if ace_window:
+            if p.dist(me, s) <= me.stats.attack_range:
+                return Proposal(2.4, Auto("__struct__"), self.name,
+                                "enemies down — END IT", comms="They're dead, push!")
+            return Proposal(2.2, Move(s.x, s.y), self.name, "push while enemies dead")
+        # safety check relaxes as pressure rises (late game = commit to ending)
         enemies_near = sum(1 for e in p.enemies() if p.dist(e, s) < 1800)
-        if enemies_near > len([a for a in p.allies() if p.dist(a, s) < 1800]) + 1:
+        allies_near = len([a for a in p.allies() if p.dist(a, s) < 1800]) + 1
+        if enemies_near > allies_near + 1 + int(pressure * 2):
             return None
+        boost = 0.6 + 1.4 * pressure        # 0.6 early -> 2.0 late
         if d <= me.stats.attack_range:
-            # in range: damage it (handled via a Cast-less auto; see world hook)
-            return Proposal(0.6 * self.w(w, 0.8), Auto("__struct__"), self.name,
+            return Proposal(boost * self.w(w, 0.8), Auto("__struct__"), self.name,
                             f"attack {s.team} {s.lane} "
                             f"{'nexus' if s.kind=='nexus' else 'tower'}")
-        if d < 3000:
-            return Proposal(0.5 * self.w(w, 0.8), Move(s.x, s.y), self.name,
-                            f"push toward {s.team} {s.lane} structure")
+        if d < 4000:
+            return Proposal((boost - 0.1) * self.w(w, 0.8), Move(s.x, s.y),
+                            self.name, f"push {s.team} {s.lane} structure")
         return None
 
 

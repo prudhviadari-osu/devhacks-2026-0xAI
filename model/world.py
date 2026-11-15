@@ -75,6 +75,9 @@ class World:
         self.time = 0.0
         self.objective = Objective("DRAGON", *DRAGON_POS, spawns_in=dragon_spawn)
         self.log: list[str] = []
+        # match pressure ramps 0 -> 1 over ~8 min: teams get more push-happy as
+        # the game goes long, so a winner emerges instead of a permanent stalemate.
+        self.match_pressure = 0.0
         # visual effects produced THIS tick, for the renderer to draw.
         # each: {"kind": "auto"|"cast"|"heal", "src": name, "dst": name,
         #        "slot": str|None, "cc": bool}
@@ -107,6 +110,7 @@ class World:
                 c.total_time_alive += TICK
             self._handle_respawn(c)
         self.objective.spawns_in = max(0.0, self.objective.spawns_in - TICK)
+        self.match_pressure = min(1.0, self.time / 480.0)   # full by ~8 min
 
         for name, action in actions.items():
             champ = self.by_name.get(name)

@@ -81,6 +81,28 @@ function render(snap) {
     ctx.fillText(o.up ? "DRAGON UP" : `dragon ${o.spawns_in|0}s`, x, y + 20);
   }
 
+  // structures (towers + nexus)
+  for (const s of snap.structures || []) {
+    const [x,y] = toScreen(s.x, s.y);
+    const col = s.team === "ALLY" ? "#4a7ad0" : "#d05a5a";
+    if (!s.alive) {
+      ctx.strokeStyle = "rgba(120,120,130,.5)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x-5,y-5); ctx.lineTo(x+5,y+5);
+      ctx.moveTo(x+5,y-5); ctx.lineTo(x-5,y+5); ctx.stroke();   // rubble X
+      continue;
+    }
+    const sz = s.kind === "nexus" ? 11 : 7;
+    ctx.fillStyle = col; ctx.fillRect(x - sz, y - sz, sz*2, sz*2);
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.strokeRect(x-sz,y-sz,sz*2,sz*2);
+    // structure hp bar
+    ctx.fillStyle = "#2a2e3a"; ctx.fillRect(x - sz, y - sz - 5, sz*2, 3);
+    ctx.fillStyle = "#6ad08a"; ctx.fillRect(x - sz, y - sz - 5, sz*2*s.hp_frac, 3);
+    if (s.kind === "nexus") {
+      ctx.fillStyle = col; ctx.font = "10px monospace"; ctx.textAlign = "center";
+      ctx.fillText("NEXUS", x, y + sz + 12);
+    }
+  }
+
   // minions
   for (const m of snap.minions || []) {
     const [x,y] = toScreen(m.x, m.y);
@@ -172,8 +194,20 @@ function render(snap) {
 
   updatePanel(snap);
   updateFeed(snap);
+  updateScore(snap);
   statusEl.textContent = `t=${snap.time}s  live`;
   statusEl.className = "";
+}
+
+function updateScore(snap) {
+  const sc = snap.score; if (!sc) return;
+  const A = sc.ALLY, E = sc.ENEMY;
+  document.getElementById("sAllyK").textContent = `${A.kills}/${A.deaths}/${A.assists}`;
+  document.getElementById("sEnemyK").textContent = `${E.kills}/${E.deaths}/${E.assists}`;
+  document.getElementById("sAllyNx").textContent = `${(A.nexus_hp*100)|0}%`;
+  document.getElementById("sEnemyNx").textContent = `${(E.nexus_hp*100)|0}%`;
+  const wEl = document.getElementById("winner");
+  wEl.textContent = snap.winner ? `${snap.winner} WINS` : "";
 }
 
 function updateFeed(snap) {

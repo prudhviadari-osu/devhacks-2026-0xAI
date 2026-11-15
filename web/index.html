@@ -18,6 +18,14 @@
             var(--line); border-radius:6px; padding:5px 9px; font:inherit;
             cursor:pointer; }
   #desc { color:var(--muted); font-size:12px; }
+  #scorebar { display:flex; align-items:center; justify-content:center; gap:18px;
+              padding:8px; background:#12141a; border-bottom:1px solid var(--line);
+              font-size:14px; }
+  #scorebar .side { display:flex; gap:10px; align-items:center; }
+  #scorebar .ally b { color:var(--ally); } #scorebar .enemy b { color:var(--enemy); }
+  #scorebar .nx { color:var(--muted); font-size:12px; } #scorebar .nx i { font-style:normal; color:var(--text); }
+  #vs { color:var(--muted); font-size:11px; }
+  #winner { color:var(--dragon); font-weight:700; }
   #canvasWrap { flex:1; position:relative; }
   canvas { display:block; width:100%; height:100%; background:#1a1d24; }
   #status { position:absolute; top:8px; right:12px; font-size:12px;
@@ -58,6 +66,12 @@
       </label>
       <button id="reload">restart</button>
       <span id="desc"></span>
+    </div>
+    <div id="scorebar">
+      <span class="side ally"><b id="sAllyK">0/0/0</b> <span class="nx">nexus <i id="sAllyNx">100%</i></span></span>
+      <span id="vs">VS</span>
+      <span class="side enemy"><span class="nx">nexus <i id="sEnemyNx">100%</i></span> <b id="sEnemyK">0/0/0</b></span>
+      <span id="winner"></span>
     </div>
     <div id="canvasWrap">
       <canvas id="c"></canvas>

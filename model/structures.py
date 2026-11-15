@@ -19,8 +19,8 @@ TOWER_DAMAGE = 140.0          # per shot; ramps on champions in real LoL (simpli
 TOWER_ATTACK_CD = 1.0
 # HP tuned so sieges resolve within a sim session (real LoL towers are tankier;
 # scaled down so you can watch a full game end on a nexus kill).
-TOWER_HP = 1400.0
-NEXUS_HP = 2200.0
+TOWER_HP = 1100.0
+NEXUS_HP = 1800.0
 
 
 @dataclass

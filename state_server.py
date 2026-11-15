@@ -91,6 +91,8 @@ class SimRunner:
                 "spawn_x": c.spawn_x, "spawn_y": c.spawn_y,
                 "attack_range": c.stats.attack_range,
                 "learned": learned,
+                "kills": c.kills, "deaths": c.deaths, "assists": c.assists,
+                "streak": c.killstreak, "cs": c.cs,
             })
         minions = [{"team": m.team, "kind": m.kind, "x": m.x, "y": m.y,
                     "hp_frac": round(m.hp_frac, 2)}
@@ -116,12 +118,29 @@ class SimRunner:
         feed = [l for l in w.log
                 if any(k in l for k in ("hits", "autos", "stuns", "died",
                                         "respawned", "heals", "last-hit"))][-8:]
+        # structures (towers + nexus) for rendering + scoreboard
+        structures = []
+        for s in w.structures.structures:
+            structures.append({"team": s.team, "kind": s.kind, "lane": s.lane,
+                               "tier": s.tier, "x": s.x, "y": s.y,
+                               "hp_frac": round(s.hp_frac, 2), "alive": s.alive,
+                               "attackable": w.structures.attackable(s)})
+        # team scoreboard totals
+        def team_tot(team):
+            cs = [c for c in w.champions if c.team == team]
+            return {"kills": sum(c.kills for c in cs),
+                    "deaths": sum(c.deaths for c in cs),
+                    "assists": sum(c.assists for c in cs),
+                    "nexus_hp": next((round(s.hp_frac, 2) for s in w.structures.structures
+                                      if s.team == team and s.kind == "nexus"), 0)}
         o = w.objective
         return {
             "time": round(w.time, 1), "map_size": MAP_SIZE, "desc": self.desc,
             "objective": {"name": o.name, "x": o.x, "y": o.y,
                           "up": w.objective_up(), "spawns_in": round(o.spawns_in, 1)},
             "champions": champs, "minions": minions, "fx": fx, "feed": feed,
+            "structures": structures, "winner": w.structures.winner,
+            "score": {"ALLY": team_tot("ALLY"), "ENEMY": team_tot("ENEMY")},
         }
 
 
