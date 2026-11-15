@@ -25,4 +25,16 @@ class UtilityBotController(CharacterController):
         self.last_comms = d.comms
         self.last_priority = d.chosen + (" (gated)" if d.gated else "")
         self.last_considered = d.considered
+
+        # trainable items: push learned item prefs onto the champ (shop uses
+        # them) and credit owned items with how the fight is going.
+        if self.agent.learner is not None:
+            champ = world.by_name.get(me_name)
+            if champ is not None:
+                champ.item_prefs = self.agent.learner.item_prefs()
+                tb = 0.0
+                if hasattr(champ, "trade_balance"):
+                    tb = champ.trade_balance(world.time)
+                for it in champ.items:
+                    self.agent.learner.credit_item(it.name, tb * 0.02)
         return d.action

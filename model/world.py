@@ -118,6 +118,7 @@ class World:
             self._handle_respawn(c)
         self.objective.spawns_in = max(0.0, self.objective.spawns_in - TICK)
         self.match_pressure = min(1.0, self.time / 480.0)   # full by ~8 min
+        self._update_dragon()
 
         for name, action in actions.items():
             champ = self.by_name.get(name)
@@ -129,10 +130,41 @@ class World:
         for c in self.champions:
             if c.alive:
                 self._separate(c)
+            self._try_shop(c)
 
         # minions march/fight, towers shoot, after champions act
         self.minions.update(self, TICK)
         self.structures.update(self, TICK)
+
+    def _try_shop(self, c: Champion) -> None:
+        """Buy an item when at base. The item CHOICE is trainable: a per-champion
+        `item_prefs` dict (set by the learner, higher = better-performing item)
+        biases which affordable item is bought, so champions learn their best
+        builds over matches. Falls back to archetype default when unlearned."""
+        from model.items import ITEMS, item_stats_total
+        from agent2.profiles import archetype_of
+        at_base = (not c.alive) or \
+            math.hypot(c.x - c.base_x, c.y - c.base_y) < 1500
+        if not at_base:
+            return
+        arch = archetype_of(c.name)
+        owned = {it.name for it in c.items}
+        affordable = [it for it in ITEMS if it.cost <= c.gold
+                      and it.name not in owned
+                      and (not it.for_roles or arch in it.for_roles)]
+        if not affordable:
+            return
+        prefs = getattr(c, "item_prefs", {}) or {}
+        # score = learned preference (default 1.0) weighted by item cost (bigger
+        # spike), so learning can shift the build but cost still matters
+        def score(it):
+            return (1.0 + prefs.get(it.name, 0.0)) * (it.cost / 1000.0)
+        item = max(affordable, key=score)
+        if c.buy(item):
+            self.log.append(f"{c.name} bought {item.name} ({item.cost}g)")
+            # tell the controller what was bought so it can credit reward to it
+            self._last_purchase = getattr(self, "_last_purchase", {})
+            self._last_purchase[c.name] = item.name
 
     def _respawn_time(self) -> float:
         """League-like scaling respawn: grows meaningfully with match time so a
@@ -264,8 +296,8 @@ class World:
         champ.cooldowns[cast.slot] = ab.cd(rank)
         did_cc = False
 
-        # damage
-        dmg = ab.dmg(rank)  # (AP/AD ratios wire in with items; 0 bonus for v1)
+        # damage — now scaled by the caster's AP and bonus AD from items
+        dmg = ab.dmg(rank, ap=champ.stats.ap, ad=champ.stats.ad)
         if dmg > 0 and target and target.team != champ.team:
             dealt = target.take_damage(dmg, ab.damage_type,
                                        source=champ.name, now=self.time)
@@ -294,6 +326,44 @@ class World:
         if target:
             self.fx.append({"kind": "cast", "src": champ.name, "dst": target.name,
                             "slot": cast.slot, "cc": did_cc})
+
+    def _update_dragon(self) -> None:
+        """Dragon = a real objective: a team that holds the pit uncontested
+        'slays' it, gains a permanent team stat buff (AD+AP), and it respawns on
+        a timer. This gives the objective an actual payoff like League."""
+        o = self.objective
+        if not self.objective_up():
+            return
+        near = {"ALLY": 0, "ENEMY": 0}
+        for c in self.champions:
+            if c.alive and math.hypot(c.x - o.x, c.y - o.y) < 1400:
+                near[c.team] += 1
+        # only one team present and nobody contesting -> channel the kill
+        holder = None
+        if near["ALLY"] > 0 and near["ENEMY"] == 0:
+            holder = "ALLY"
+        elif near["ENEMY"] > 0 and near["ALLY"] == 0:
+            holder = "ENEMY"
+        if holder:
+            self._dragon_channel = getattr(self, "_dragon_channel", 0.0) + TICK
+            if self._dragon_channel >= 3.0:           # ~3s uncontested = slain
+                self._slay_dragon(holder)
+        else:
+            self._dragon_channel = 0.0
+
+    def _slay_dragon(self, team: str) -> None:
+        stacks = getattr(self, f"_dragon_stacks_{team}", 0) + 1
+        setattr(self, f"_dragon_stacks_{team}", stacks)
+        # permanent team buff: each dragon adds AD + AP to that team
+        for c in self.champions:
+            if c.team == team:
+                c.dragon_ad = getattr(c, "dragon_ad", 0.0) + 8.0
+                c.dragon_ap = getattr(c, "dragon_ap", 0.0) + 10.0
+                c.apply_dragon_buff()
+        self.log.append(f"{team} slew the DRAGON (team buff x{stacks})")
+        self.objective.secured_by = team
+        self.objective.spawns_in = 90.0               # respawns in 90s
+        self._dragon_channel = 0.0
 
     # ---- objective ----
     def objective_up(self) -> bool:

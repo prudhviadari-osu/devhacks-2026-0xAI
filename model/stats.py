@@ -86,6 +86,7 @@ class ChampionStats:
     max_hp: float
     max_mp: float
     ad: float
+    ap: float            # ability power (from items) — scales ability damage
     armor: float
     mr: float
     attack_speed: float
@@ -95,18 +96,20 @@ class ChampionStats:
     @classmethod
     def resolve(cls, base: BaseStats, level: int,
                 bonus_armor: float = 0.0, bonus_mr: float = 0.0,
-                bonus_hp: float = 0.0, bonus_ad: float = 0.0) -> "ChampionStats":
+                bonus_hp: float = 0.0, bonus_ad: float = 0.0,
+                bonus_ap: float = 0.0, bonus_as: float = 0.0) -> "ChampionStats":
         return cls(
             level=level,
             max_hp=stat_at_level(base.hp, base.hp_per_level, level) + bonus_hp,
             max_mp=stat_at_level(base.mp, base.mp_per_level, level),
             ad=stat_at_level(base.ad, base.ad_per_level, level) + bonus_ad,
+            ap=bonus_ap,
             armor=stat_at_level(base.armor, base.armor_per_level, level) + bonus_armor,
             mr=stat_at_level(base.mr, base.mr_per_level, level) + bonus_mr,
             # attack speed grows by a PERCENT of base per level (League rule)
             attack_speed=base.attack_speed * (
                 1 + (base.attack_speed_per_level / 100.0) * growth_multiplier(level)
-            ),
+            ) + bonus_as,
             move_speed=base.move_speed,
             attack_range=base.attack_range,
         )

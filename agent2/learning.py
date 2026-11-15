@@ -163,13 +163,27 @@ class Learner:
             self.weights[beh] = max(WEIGHT_MIN, min(WEIGHT_MAX, cur))
 
     # ---- persistence: keep what a champion learned ACROSS matches ----
+    def item_prefs(self) -> dict:
+        """Learned per-item preference (reward-weighted). Items that correlated
+        with reward get a positive bias; the shop uses this to build better."""
+        return getattr(self, "_item_prefs", {})
+
+    def credit_item(self, item_name: str, recent_reward: float) -> None:
+        """Nudge an owned item's preference by how well things have gone since
+        buying it. Called with a smoothed reward signal."""
+        if not hasattr(self, "_item_prefs"):
+            self._item_prefs = {}
+        cur = self._item_prefs.get(item_name, 0.0)
+        self._item_prefs[item_name] = cur + 0.05 * recent_reward
+
     def save(self, champion_key: str) -> None:
         import json, os
         os.makedirs(_BRAIN_DIR, exist_ok=True)
         path = os.path.join(_BRAIN_DIR, f"{champion_key}.json")
         with open(path, "w") as f:
             json.dump({"weights": self.weights,
-                       "beh_reward": self.beh_reward}, f)
+                       "beh_reward": self.beh_reward,
+                       "item_prefs": getattr(self, "_item_prefs", {})}, f)
 
     def load(self, champion_key: str) -> bool:
         """Load previously-learned weights if present. Returns True if loaded."""
@@ -184,6 +198,7 @@ class Learner:
             self.weights = dict(self.baseline)
             self.weights.update(data.get("weights", {}))
             self.beh_reward = data.get("beh_reward", {})
+            self._item_prefs = data.get("item_prefs", {})
             return True
         except Exception:
             return False

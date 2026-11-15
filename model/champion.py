@@ -200,6 +200,30 @@ class Champion:
         self.dmg_taken_log.append((now, dealt))
         return dealt
 
+    def recompute_stats(self) -> None:
+        """Re-resolve stats including item bonuses AND dragon buffs. Preserves
+        current HP fraction so a new HP item doesn't fully heal you."""
+        from model.items import item_stats_total
+        base = base_stats_for(self.champion_key())
+        frac = self.hp_frac
+        bonus = item_stats_total(self.items)
+        bonus["bonus_ad"] += getattr(self, "dragon_ad", 0.0)
+        bonus["bonus_ap"] += getattr(self, "dragon_ap", 0.0)
+        self.stats = ChampionStats.resolve(base, self.level, **bonus)
+        self.hp = self.stats.max_hp * frac
+
+    def apply_dragon_buff(self) -> None:
+        self.recompute_stats()
+
+    def buy(self, item) -> bool:
+        """Spend gold on an item; apply its stats. Returns True if purchased."""
+        if item is None or self.gold < item.cost:
+            return False
+        self.gold -= item.cost
+        self.items.append(item)
+        self.recompute_stats()
+        return True
+
     def record_dealt(self, amount: float, now: float) -> None:
         self.dmg_dealt_log.append((now, amount))
 
