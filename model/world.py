@@ -72,6 +72,11 @@ class World:
     def __init__(self, champions: list[Champion], dragon_spawn: float = 0.0):
         self.champions = champions
         self.by_name = {c.name: c for c in champions}
+        # per-world time step. Default = module TICK (0.1s). Training can set a
+        # bigger dt (e.g. 0.3) so the SAME game resolves in ~1/3 the steps —
+        # genuine speedup since cost is proportional to step count. All timers
+        # (cooldowns, movement, respawn) use self.dt so physics stays consistent.
+        self.dt = TICK
         self.time = 0.0
         self.objective = Objective("DRAGON", *DRAGON_POS, spawns_in=dragon_spawn)
         self.log: list[str] = []
@@ -108,15 +113,15 @@ class World:
 
     # ---- the tick: apply each champion's action, then advance timers ----
     def step(self, actions: dict[str, Action]) -> None:
-        self.time += TICK
+        self.time += self.dt
         self.fx = []   # clear last tick's effects; this tick refills it
         for c in self.champions:
-            c.tick(TICK)
+            c.tick(self.dt)
             if c.alive:
-                c.time_alive += TICK
-                c.total_time_alive += TICK
+                c.time_alive += self.dt
+                c.total_time_alive += self.dt
             self._handle_respawn(c)
-        self.objective.spawns_in = max(0.0, self.objective.spawns_in - TICK)
+        self.objective.spawns_in = max(0.0, self.objective.spawns_in - self.dt)
         self.match_pressure = min(1.0, self.time / 480.0)   # full by ~8 min
         self._update_dragon()
 
@@ -133,8 +138,8 @@ class World:
             self._try_shop(c)
 
         # minions march/fight, towers shoot, after champions act
-        self.minions.update(self, TICK)
-        self.structures.update(self, TICK)
+        self.minions.update(self, self.dt)
+        self.structures.update(self, self.dt)
 
     def _try_shop(self, c: Champion) -> None:
         """Buy an item when at base. The item CHOICE is trainable: a per-champion
@@ -199,7 +204,7 @@ class World:
                 c.respawn_timer = self._respawn_time()   # just died -> start timer
                 self.log.append(f"{c.name} died (respawn in {c.respawn_timer:.0f}s)")
             else:
-                c.respawn_timer = max(0.0, c.respawn_timer - TICK)
+                c.respawn_timer = max(0.0, c.respawn_timer - self.dt)
                 if c.respawn_timer <= 0.0:
                     c.respawn()
                     self.log.append(f"{c.name} respawned")
@@ -233,7 +238,7 @@ class World:
         d = math.hypot(dx, dy)
         if d < 1e-6:
             return
-        step = min(champ.stats.move_speed * TICK, d)   # real move speed / sec
+        step = min(champ.stats.move_speed * self.dt, d)   # real move speed / sec
         champ.x += dx / d * step
         champ.y += dy / d * step
         # keep champions on the map (defensive clamp)
@@ -345,7 +350,7 @@ class World:
         elif near["ENEMY"] > 0 and near["ALLY"] == 0:
             holder = "ENEMY"
         if holder:
-            self._dragon_channel = getattr(self, "_dragon_channel", 0.0) + TICK
+            self._dragon_channel = getattr(self, "_dragon_channel", 0.0) + self.dt
             if self._dragon_channel >= 3.0:           # ~3s uncontested = slain
                 self._slay_dragon(holder)
         else:

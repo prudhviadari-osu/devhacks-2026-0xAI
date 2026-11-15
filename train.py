@@ -56,12 +56,21 @@ def roster():
     return [c.name for c in champs]
 
 
+TIME_SCALE = 3.0     # training runs the sim at a bigger dt so the SAME game
+                     # resolves in ~1/TIME_SCALE the steps = that much faster.
+MAX_TICKS = 3000     # hard cap so a match can't drag forever
+
+
 def play_match(focus: str | None, focus_rate: float, bg_rate: float,
-               learn: bool = True) -> str | None:
-    """Run one headless match. `focus` champion learns at focus_rate, others at
-    bg_rate (or not at all if learn=False, for evaluation). Returns winner."""
+               learn: bool = True, time_scale: float = TIME_SCALE) -> str | None:
+    """Run one headless match FAST by scaling the sim's time step. A real match
+    is the sim at dt=0.1; here we use dt=0.1*time_scale so the identical game
+    plays out in far fewer steps (cost is proportional to step count). Decision
+    LOGIC is unchanged — it's the real game at a coarser clock, like fast-forward.
+    Returns the winner."""
     champs, ds, _, _ = scenarios.get("balanced")
     world = World(champs, dragon_spawn=ds)
+    world.dt = 0.1 * time_scale          # fast-forward clock
     ctrls = {}
     for ch in champs:
         c = UtilityBotController(profile_for_champion(ch.name),
@@ -70,8 +79,7 @@ def play_match(focus: str | None, focus_rate: float, bg_rate: float,
             is_focus = (ch.champion_key() == focus)
             c.agent.learner.rate = (focus_rate if is_focus else bg_rate) if learn else 0.0
         ctrls[ch.name] = c
-    # run to a decision or a cap (6000 ticks = ~10 min sim; most end sooner)
-    for _ in range(6000):
+    for _ in range(MAX_TICKS):
         for n, ct in ctrls.items():
             ct.decide(world, n)
         world.step({n: ct.agent.last.action for n, ct in ctrls.items()})
@@ -117,7 +125,8 @@ def eval_vs_benchmark(games: int = 20) -> float:
                 c.agent.learner.rate = 0.0
                 _load_from(c.agent.learner, ch.champion_key(), brain_dir)
             ctrls[ch.name] = c
-        for _ in range(6000):
+        world.dt = 0.1 * TIME_SCALE
+        for _ in range(MAX_TICKS):
             for n, ct in ctrls.items():
                 ct.decide(world, n)
             world.step({n: ct.agent.last.action for n, ct in ctrls.items()})
@@ -192,9 +201,16 @@ if __name__ == "__main__":
                     help="matches focused on each champion per cycle")
     ap.add_argument("--eval-every", type=int, default=40,
                     help="run a benchmark eval every N matches")
+    ap.add_argument("--speed", type=float, default=TIME_SCALE,
+                    help="sim fast-forward multiplier (3 = 3x faster training, "
+                         "same game at a coarser clock; 1 = real-match fidelity)")
+    ap.add_argument("--max-ticks", type=int, default=MAX_TICKS,
+                    help="hard cap on match length in ticks")
     ap.add_argument("--quick", action="store_true",
                     help="short sanity run (2 cycles x 15 matches)")
     args = ap.parse_args()
+    TIME_SCALE = args.speed
+    MAX_TICKS = args.max_ticks
     if args.quick:
         train(cycles=2, block=15, eval_every=10)
     else:
