@@ -76,6 +76,7 @@ class SimRunner:
                 "level": c.level, "behavior": behavior,
                 "dead_timer": round(c.respawn_timer, 1),
                 "spawn_x": c.spawn_x, "spawn_y": c.spawn_y,
+                "attack_range": c.stats.attack_range,
             })
         minions = [{"team": m.team, "kind": m.kind, "x": m.x, "y": m.y,
                     "hp_frac": round(m.hp_frac, 2)}
@@ -124,8 +125,19 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/state"):
             Handler.runner.tick()
             self._send(200, Handler.runner.snapshot())
+        elif self.path.startswith("/scenario"):
+            # /scenario?name=teamfight -> reset the sim to that scenario
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            name = (q.get("name") or ["balanced"])[0]
+            try:
+                Handler.runner = SimRunner(name)
+                self._send(200, {"ok": True, "scenario": name,
+                                 "desc": Handler.runner.desc})
+            except KeyError as e:
+                self._send(400, {"error": str(e)})
         else:
-            self._send(404, {"error": "use /state or /health"})
+            self._send(404, {"error": "use /state, /scenario?name=, or /health"})
 
     def log_message(self, *args):
         pass  # quiet

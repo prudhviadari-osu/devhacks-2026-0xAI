@@ -81,6 +81,17 @@ Controls: right-click = move, left-click a champion = auto-attack, Q/W/E/R = cas
 (flee/disengage/recall), `poke` (poke/kite). `HUMAN_CHAMP=Name` to play a
 specific champion; `HUMAN=0` for all-bots.
 
+## Web renderer (recommended — browser, no install, shareable)
+
+Displays the sim in a browser canvas. No engine, no build step, nothing to learn.
+```bash
+python3 state_server.py          # terminal: the sim + AI
+# then open web/index.html in a browser   (see web/README.md)
+```
+Shows champions/minions/objective, attack effects, HP bars, and a live panel of
+each champion's current AI behavior. Scenario dropdown switches matchups. This is
+the easiest path to good-looking visuals for the demo video.
+
 ## Unity renderer (nicer visuals, no AI rewrite)
 
 The AI is renderer-agnostic. `state_server.py` runs the sim and serves world
