@@ -30,15 +30,53 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// world (0..MAP, y-up) -> screen (pixels, y-down), fit as a square
+// ---- dynamic camera: follows + zooms into the main action ----
+// cam.cx/cy = world point at screen center; cam.view = world units across the
+// shorter screen axis (smaller = more zoomed in). Smoothed toward targets.
+const cam = { cx: 7500, cy: 7500, view: MAP, tcx: 7500, tcy: 7500, tview: MAP };
+let autoCam = true;   // toggle with the button; false = whole-map overview
+
+function updateCamera(snap) {
+  if (!autoCam) { cam.tcx = MAP/2; cam.tcy = MAP/2; cam.tview = MAP; }
+  else {
+    const champs = (snap.champions || []).filter(c => c.alive);
+    if (champs.length) {
+      // weight the center toward where FIGHTING is (champs near enemies),
+      // else just the centroid of everyone
+      let wsum = 0, cx = 0, cy = 0;
+      let minx=1e9, miny=1e9, maxx=-1e9, maxy=-1e9;
+      for (const c of champs) {
+        // weight: in-combat champs (low-ish hp or many neighbors) count more
+        const near = champs.filter(o => o !== c &&
+          (o.x-c.x)**2 + (o.y-c.y)**2 < 2500**2).length;
+        const wgt = 1 + near + (c.hp_frac < 0.9 ? 2 : 0);
+        wsum += wgt; cx += c.x * wgt; cy += c.y * wgt;
+        minx=Math.min(minx,c.x); maxx=Math.max(maxx,c.x);
+        miny=Math.min(miny,c.y); maxy=Math.max(maxy,c.y);
+      }
+      cam.tcx = cx / wsum; cam.tcy = cy / wsum;
+      // frame the spread of champions with padding, clamped to a zoom range
+      const spread = Math.max(maxx-minx, maxy-miny) + 2600;
+      cam.tview = Math.max(3500, Math.min(MAP, spread));
+    }
+  }
+  // smooth toward targets (lerp) so the camera glides, never jumps
+  cam.cx += (cam.tcx - cam.cx) * 0.08;
+  cam.cy += (cam.tcy - cam.cy) * 0.08;
+  cam.view += (cam.tview - cam.view) * 0.06;
+}
+
+// world (0..MAP, y-up) -> screen (pixels, y-down) through the camera
 function toScreen(x, y) {
   const s = Math.min(canvas.width, canvas.height);
-  const ox = (canvas.width - s) / 2, oy = (canvas.height - s) / 2;
-  return [ox + (x / MAP) * s, oy + (1 - y / MAP) * s];
+  const scale = s / cam.view;                       // px per world unit
+  const sx = canvas.width / 2 + (x - cam.cx) * scale;
+  const sy = canvas.height / 2 - (y - cam.cy) * scale;  // flip y (up = north)
+  return [sx, sy];
 }
 function scalePx(units) {
   const s = Math.min(canvas.width, canvas.height);
-  return (units / MAP) * s;
+  return units * (s / cam.view);
 }
 
 // ---- Summoner's Rift-ish background ----
@@ -68,6 +106,7 @@ function teamColor(team) { return team === "ALLY" ? "#4fa8ff" : "#ef5a5a"; }
 function render(snap) {
   MAP = snap.map_size || MAP;
   descEl.textContent = snap.desc || "";
+  updateCamera(snap);          // follow + zoom into the action
   drawMap();
 
   // objective
@@ -190,7 +229,10 @@ function render(snap) {
     const atkPulse = 1 + 0.35 * p.atk;
     // subtle walk bob when moving (frequency scales with move speed)
     const bob = moving ? 1 + 0.1 * Math.sin(perfNow() / (12000 / (c.move_speed||330))) : 1;
-    const r = 9 * bob * atkPulse;
+    // champion radius scales with zoom: a real champ is ~120 world units, so it
+    // grows when the camera zooms in -> bodies read as distinct, not dots.
+    const baseR = Math.max(7, Math.min(22, scalePx(260)));
+    const r = baseR * bob * atkPulse;
 
     // body (flash white on hit, orange tint while attacking)
     ctx.fillStyle = p.hitFlash > 0
@@ -202,23 +244,27 @@ function render(snap) {
     // facing indicator (a little nub in the movement direction)
     if (moving) {
       const m = Math.hypot(p.sx, p.sy);
-      const fx = x + (p.sx / m) * 12, fy = y - (p.sy / m) * 12; // y flip
+      const fx = x + (p.sx / m) * (r + 4), fy = y - (p.sy / m) * (r + 4);
       ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(fx, fy); ctx.stroke();
     }
 
     if (c.cc > 0) {   // CC ring pulses
-      const pulse = 13 + 2 * Math.sin(perfNow() / 80);
+      const pulse = r + 4 + 2 * Math.sin(perfNow() / 80);
       ctx.strokeStyle = "#f0dc5a"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(x, y, pulse, 0, 7); ctx.stroke();
     }
 
-    // name + hp bar (hp bar animates toward the true value)
-    ctx.fillStyle = "#fff"; ctx.font = "11px monospace"; ctx.textAlign = "center";
-    ctx.fillText(`${c.name} L${c.level}`, x, y - 16);
-    ctx.fillStyle = "#3a3f4c"; ctx.fillRect(x - 18, y + 12, 36, 4);
+    // name + hp bar, positioned relative to the (zoom-scaled) body radius
+    const bw = Math.max(26, r * 2.4);            // hp-bar width tracks body size
+    ctx.fillStyle = "#fff";
+    ctx.font = `${Math.max(10, Math.min(14, r))}px monospace`;
+    ctx.textAlign = "center";
+    ctx.fillText(`${c.name} L${c.level}`, x, y - r - 6);
+    const by = y + r + 4;
+    ctx.fillStyle = "#3a3f4c"; ctx.fillRect(x - bw/2, by, bw, 4);
     const hpcol = c.hp_frac > 0.5 ? "#5fd27a" : c.hp_frac > 0.25 ? "#d4b24a" : "#e05a5a";
-    ctx.fillStyle = hpcol; ctx.fillRect(x - 18, y + 12, 36 * c.hp_frac, 4);
+    ctx.fillStyle = hpcol; ctx.fillRect(x - bw/2, by, bw * c.hp_frac, 4);
     ctx.globalAlpha = 1;
   }
 
@@ -298,6 +344,13 @@ async function setScenario(name) {
   try { await fetch(`${SERVER}/scenario?name=${name}`, { cache: "no-store" }); }
   catch (e) {}
 }
+// camera toggle: action-follow vs. whole-map overview
+const camBtn = document.getElementById("camBtn");
+if (camBtn) camBtn.addEventListener("click", () => {
+  autoCam = !autoCam;
+  camBtn.textContent = autoCam ? "camera: action" : "camera: overview";
+});
+
 scenarioSel.addEventListener("change", () => setScenario(scenarioSel.value));
 document.getElementById("reload").addEventListener("click",
   () => setScenario(scenarioSel.value));
