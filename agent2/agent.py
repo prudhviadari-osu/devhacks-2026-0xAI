@@ -47,12 +47,26 @@ class UtilityAgent:
         self.learn = learn
         self.learner = None
         self.persist_key = persist_key
+        self.meta = None
         if learn:
             from agent2.learning import Learner
-            self.learner = Learner(baseline=dict(self.weights))
-            # load weights learned in previous matches, if persisting
+            baseline = dict(self.weights)
+            # apply slow cross-match (win/loss) drift to the baseline first
+            if persist_key:
+                from agent2.meta_learning import MetaRecord
+                self.meta = MetaRecord.load(persist_key)
+                baseline = self.meta.apply_drift(baseline)   # slow win/loss drift
+            self.learner = Learner(baseline=baseline)
+            # then load fast per-behavior weights learned in previous matches
             if persist_key:
                 self.learner.load(persist_key)
+
+    def end_match(self, won: bool) -> None:
+        """Record the win/loss for slow cross-match learning + persist."""
+        if self.meta is not None and self.persist_key:
+            self.meta.record_match(won, dict(self.weights))
+            self.meta.save()
+        self.save_brain()
 
     def save_brain(self) -> None:
         if self.learner is not None and self.persist_key:

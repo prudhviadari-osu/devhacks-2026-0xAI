@@ -59,6 +59,12 @@ class SimRunner:
         self._ticks = 0
 
     def tick(self) -> None:
+        if self.world.structures.winner and not getattr(self, "_ended", False):
+            self._end_match(self.world.structures.winner)
+            self._ended = True
+            return
+        if getattr(self, "_ended", False):
+            return   # match over; hold final state until restarted
         actions = {name: ctrl.decide(self.world, name)
                    for name, ctrl in self.controllers.items()}
         self.world.step(actions)
@@ -67,6 +73,14 @@ class SimRunner:
         if self._ticks % 300 == 0:
             for ctrl in self.controllers.values():
                 ctrl.agent.save_brain()
+
+    def _end_match(self, winner: str) -> None:
+        """Record win/loss for every champion -> slow cross-match learning."""
+        for name, ctrl in self.controllers.items():
+            champ = self.world.by_name.get(name)
+            won = champ is not None and champ.team == winner
+            ctrl.agent.end_match(won)
+        self.world.log.append(f"MATCH OVER — {winner} wins")
 
     def snapshot(self) -> dict:
         w = self.world
