@@ -66,6 +66,11 @@ class SimRunner:
         for c in w.champions:
             ctrl = self.controllers.get(c.name)
             behavior = getattr(ctrl, "last_priority", "") if ctrl else ""
+            # what this champion has LEARNED (weight drift from baseline)
+            learned = {}
+            agent = getattr(ctrl, "agent", None)
+            if agent is not None and getattr(agent, "learner", None):
+                learned = agent.learner.summary()
             champs.append({
                 "name": c.name, "team": c.team, "role": c.role,
                 "x": c.x, "y": c.y,
@@ -77,6 +82,7 @@ class SimRunner:
                 "dead_timer": round(c.respawn_timer, 1),
                 "spawn_x": c.spawn_x, "spawn_y": c.spawn_y,
                 "attack_range": c.stats.attack_range,
+                "learned": learned,
             })
         minions = [{"team": m.team, "kind": m.kind, "x": m.x, "y": m.y,
                     "hp_frac": round(m.hp_frac, 2)}

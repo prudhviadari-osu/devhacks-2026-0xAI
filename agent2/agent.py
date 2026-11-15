@@ -36,23 +36,32 @@ class UtilityAgent:
     MIN_COMMIT_TICKS = 5          # ~0.5s at 10Hz before reconsidering a switch
 
     def __init__(self, repertoire: list[Capability] | None = None,
-                 weights: dict[str, float] | None = None):
+                 weights: dict[str, float] | None = None,
+                 learn: bool = True):
         self.repertoire = repertoire or FULL_REPERTOIRE
         self.weights = weights or {}
         self.last: Decision | None = None
         self._committed: str | None = None   # name of current capability
         self._commit_ticks = 0
+        # online learning: weights adapt toward what earns reward (Option A)
+        self.learn = learn
+        self.learner = None
+        if learn:
+            from agent2.learning import Learner
+            self.learner = Learner(baseline=dict(self.weights))
 
     def decide(self, world: World, me_name: str) -> Decision:
         p = Perception(world, me_name)
         from agent2.phases import detect_phase
         phase = detect_phase(p)
         self.phase = phase
+        # use the learner's adapting weights if learning is on, else static
+        active_weights = self.learner.weights if self.learner else self.weights
         proposals: list[Proposal] = []
         for cap in self.repertoire:
             if not cap.relevant_in(phase):
                 continue   # phase-gated: only relevant behaviors compete
-            prop = cap.propose(p, self.weights)
+            prop = cap.propose(p, active_weights)
             if prop is not None:
                 proposals.append(prop)
 
@@ -81,6 +90,9 @@ class UtilityAgent:
             gated=gated,
         )
         self.last = d
+        # learning: attribute reward to the chosen behavior and adapt weights
+        if self.learner is not None:
+            self.learner.observe(p.me, world, best.name)
         return d
 
     def _apply_hysteresis(self, top: Proposal,

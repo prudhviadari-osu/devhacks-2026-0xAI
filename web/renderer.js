@@ -17,6 +17,7 @@ const champsPanel = document.getElementById("champs");
 const feedLines = document.getElementById("feedlines");
 const scenarioSel = document.getElementById("scenario");
 
+const perfNow = () => performance.now();
 let MAP = 15000;                // updated from server
 const drawPos = {};             // name -> {x,y} smoothed screen-space (world units)
 const fxFlashes = [];           // recent effects, fade over time
@@ -101,35 +102,69 @@ function render(snap) {
     e.life -= 0.12; if (e.life <= 0) fxFlashes.splice(i, 1);
   }
 
-  // champions (smoothed movement)
+  // champions (smoothed movement + facing + animation state)
   for (const c of snap.champions || []) {
     if (!c.alive) continue;
-    const p = drawPos[c.name] || { x: c.x, y: c.y };
-    p.x += (c.x - p.x) * 0.3; p.y += (c.y - p.y) * 0.3;
+    const p = drawPos[c.name] || { x: c.x, y: c.y, sx: 0, sy: 0, hp: c.hp_frac,
+                                   hitFlash: 0, spawnFade: 0 };
+    // velocity-aware easing: gentle so motion looks like walking, not snapping
+    const nx = p.x + (c.x - p.x) * 0.22;
+    const ny = p.y + (c.y - p.y) * 0.22;
+    p.sx = nx - p.x; p.sy = ny - p.y;            // smoothed velocity (for facing)
+    p.x = nx; p.y = ny;
+    // hit flash when hp dropped since last frame
+    if (c.hp_frac < p.hp - 0.001) p.hitFlash = 1;
+    p.hp = c.hp_frac;
+    p.hitFlash = Math.max(0, p.hitFlash - 0.12);
+    p.spawnFade = Math.min(1, p.spawnFade + 0.08);   // fade-in after (re)spawn
     drawPos[c.name] = p;
+
     const [x,y] = toScreen(p.x, p.y);
     const col = teamColor(c.team);
+    const moving = Math.hypot(p.sx, p.sy) > 2;
+    ctx.globalAlpha = p.spawnFade;
 
     // attack-range ring
-    ctx.strokeStyle = "rgba(255,255,255,.08)"; ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(x, y, scalePx(c.attack_range || 550), 0, 7); ctx.stroke();
 
-    // body
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
-    if (c.cc > 0) { ctx.strokeStyle = "#f0dc5a"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x, y, 13, 0, 7); ctx.stroke(); }
+    // subtle walk bob: scale the body slightly with a time-based sine when moving
+    const bob = moving ? 1 + 0.12 * Math.sin(perfNow() / 90 + x) : 1;
+    const r = 9 * bob;
 
-    // name + hp bar
+    // body (flash white on hit)
+    ctx.fillStyle = p.hitFlash > 0
+      ? `rgba(255,255,255,${0.4 + 0.6 * p.hitFlash})` : col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+
+    // facing indicator (a little nub in the movement direction)
+    if (moving) {
+      const m = Math.hypot(p.sx, p.sy);
+      const fx = x + (p.sx / m) * 12, fy = y - (p.sy / m) * 12; // y flip
+      ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(fx, fy); ctx.stroke();
+    }
+
+    if (c.cc > 0) {   // CC ring pulses
+      const pulse = 13 + 2 * Math.sin(perfNow() / 80);
+      ctx.strokeStyle = "#f0dc5a"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, pulse, 0, 7); ctx.stroke();
+    }
+
+    // name + hp bar (hp bar animates toward the true value)
     ctx.fillStyle = "#fff"; ctx.font = "11px monospace"; ctx.textAlign = "center";
     ctx.fillText(`${c.name} L${c.level}`, x, y - 16);
     ctx.fillStyle = "#3a3f4c"; ctx.fillRect(x - 18, y + 12, 36, 4);
-    ctx.fillStyle = "#5fd27a"; ctx.fillRect(x - 18, y + 12, 36 * c.hp_frac, 4);
+    const hpcol = c.hp_frac > 0.5 ? "#5fd27a" : c.hp_frac > 0.25 ? "#d4b24a" : "#e05a5a";
+    ctx.fillStyle = hpcol; ctx.fillRect(x - 18, y + 12, 36 * c.hp_frac, 4);
+    ctx.globalAlpha = 1;
   }
 
-  // dead champs: respawn marker at base
+  // dead champs: respawn marker at base; reset fade so they fade in on revive
   for (const c of snap.champions || []) {
     if (c.alive) continue;
+    if (drawPos[c.name]) drawPos[c.name].spawnFade = 0;
     const [x,y] = toScreen(c.spawn_x, c.spawn_y);
     ctx.fillStyle = "#7a8092"; ctx.font = "10px monospace"; ctx.textAlign = "center";
     ctx.fillText(`${c.name} \u2620 ${c.dead_timer|0}s`, x, y);
@@ -152,12 +187,22 @@ function updatePanel(snap) {
   for (const c of snap.champions || []) {
     const div = document.createElement("div");
     div.className = "champ";
+    // "learned" drift: what this bot has adapted toward/away from
+    const lr = c.learned || {};
+    const fmt = arr => (arr || []).map(([k, v]) =>
+      `${k} ${v > 0 ? "+" : ""}${v}`).join(", ");
+    let learnedHtml = "";
+    if ((lr.up && lr.up.length) || (lr.down && lr.down.length)) {
+      learnedHtml = `<div class="meta" style="color:#8fd3a0">learned+ ${fmt(lr.up)}</div>` +
+                    `<div class="meta" style="color:#d38f8f">learned- ${fmt(lr.down)}</div>`;
+    }
     div.innerHTML = `
       <div class="row1"><span class="nm tag-${c.team}">${c.name}</span>
         <span class="meta">${c.alive ? "L"+c.level : "dead "+(c.dead_timer|0)+"s"}</span></div>
       <div class="beh">\u2192 ${c.behavior || "—"}</div>
       <div class="meta">${c.role} · hp ${(c.hp_frac*100|0)}%</div>
-      <div class="hpbar"><div style="width:${(c.hp_frac*100)|0}%"></div></div>`;
+      <div class="hpbar"><div style="width:${(c.hp_frac*100)|0}%"></div></div>
+      ${learnedHtml}`;
     champsPanel.appendChild(div);
   }
 }
