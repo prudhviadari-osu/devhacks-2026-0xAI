@@ -482,25 +482,39 @@ class Ward(Capability):
     name, family = "ward", "VISION"
     phases = (Phase.LANING, Phase.OBJECTIVE, Phase.RETREAT)
 
+    WARD_DEADZONE = 500   # if already at the ward spot, don't re-propose (anti-loop)
+
     def propose(self, p, w):
         me = p.me
         if me.role != "SUPPORT":
             return None
+        # if split from the team with enemies near, GROUPING takes priority over
+        # warding — don't fight the group behavior and oscillate.
+        allies = _ally_carries(p, exclude=me.name)
+        na = _nearest(me, allies) if allies else None
+        ne = _nearest(me, p.enemies()) if p.enemies() else None
+        if na and ne and p.dist(me, na) > 1800 and p.dist(me, ne) < 2800:
+            return None   # let Group handle it
+
         o = p.world.objective
         from agent2.phases import detect_phase
         phase = detect_phase(p)
+
+        def ward_spot(tx, ty, score, label, comms=""):
+            # arrival deadzone: once we're basically there, stop proposing so we
+            # don't ping-pong with other move behaviors
+            if p.dist_xy(me, tx, ty) < self.WARD_DEADZONE:
+                return None
+            return Proposal(score * self.w(w), Move(tx, ty), self.name, label,
+                            comms=comms)
+
         if phase == Phase.OBJECTIVE and p.dist(me, o) < 4000:
-            return Proposal(0.5 * self.w(w), Move(o.x - 400, o.y + 400),
-                            self.name, "ward the objective", comms="Warding objective.")
+            return ward_spot(o.x - 400, o.y + 400, 0.5, "ward the objective",
+                             "Warding objective.")
         if phase == Phase.RETREAT:
-            return Proposal(0.3 * self.w(w), Move(me.spawn_x, me.spawn_y),
-                            self.name, "defensive ward retreating")
-        if me.hp_frac > 0.6:
-            ally = _nearest(me, _ally_carries(p, exclude=me.name))
-            if ally:
-                return Proposal(0.3 * self.w(w, 0.6),
-                                Move(ally.x + 600, ally.y - 600), self.name,
-                                "ward a flank")
+            return ward_spot(me.spawn_x, me.spawn_y, 0.3, "defensive ward")
+        if me.hp_frac > 0.6 and na:
+            return ward_spot(na.x + 600, na.y - 600, 0.3, "ward a flank")
         return None
 
 

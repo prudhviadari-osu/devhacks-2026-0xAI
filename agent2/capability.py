@@ -50,6 +50,9 @@ class Perception:
     def dist(self, a, b) -> float:
         return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
 
+    def dist_xy(self, a, x: float, y: float) -> float:
+        return ((a.x - x) ** 2 + (a.y - y) ** 2) ** 0.5
+
 
 class Capability:
     """Base class. Override propose(); return None to abstain this tick.

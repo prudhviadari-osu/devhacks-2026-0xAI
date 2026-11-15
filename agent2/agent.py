@@ -43,6 +43,10 @@ class UtilityAgent:
         self.last: Decision | None = None
         self._committed: str | None = None   # name of current capability
         self._commit_ticks = 0
+        # anti-oscillation: remember recently-left behaviors and how long ago,
+        # to damp A<->B cycles (ward<->group) that slip past commit timing
+        self._recent_left: dict[str, int] = {}
+        self._age = 0
         # online learning: weights adapt toward what earns reward (Option A)
         self.learn = learn
         self.learner = None
@@ -131,27 +135,43 @@ class UtilityAgent:
         capability no longer proposes, or (b) the new top beats it by
         SWITCH_MARGIN after the minimum commit time.
         """
+        self._age += 1
+        OSC_COOLDOWN = 25   # ticks: a behavior just left can't be re-taken soon
+
+        # penalize any proposal we recently SWITCHED AWAY FROM, so a ward<->group
+        # style cycle can't keep re-selecting the behavior it just abandoned.
+        def effective(pr: Proposal) -> float:
+            left_at = self._recent_left.get(pr.name)
+            if left_at is not None and self._age - left_at < OSC_COOLDOWN:
+                return pr.score * 0.4     # heavy damp on a just-abandoned behavior
+            return pr.score
+
         committed_prop = next(
             (pr for pr in proposals if pr.name == self._committed), None)
 
-        # nothing committed, or our commitment vanished -> take the top, commit
+        # recompute the "top" using effective (cooldown-penalized) scores
+        best_eff = max(proposals, key=effective)
+
+        # commitment vanished -> take the best effective (not raw top), and record
         if committed_prop is None:
-            self._committed = top.name
+            if self._committed and self._committed != best_eff.name:
+                self._recent_left[self._committed] = self._age
+            self._committed = best_eff.name
             self._commit_ticks = 0
-            return top
+            return best_eff
 
         self._commit_ticks += 1
-
-        # still early in the commitment -> keep doing it (don't reconsider yet)
         if self._commit_ticks < self.MIN_COMMIT_TICKS:
             return committed_prop
 
-        # past min commit: only switch if the challenger clearly beats us
-        if top.name != self._committed and \
-                top.score > committed_prop.score * (1 + self.SWITCH_MARGIN):
-            self._committed = top.name
+        # past min commit: switch only if a challenger CLEARLY beats us on
+        # effective score (so a just-left behavior can't win via the cooldown)
+        if best_eff.name != self._committed and \
+                effective(best_eff) > effective(committed_prop) * (1 + self.SWITCH_MARGIN):
+            self._recent_left[self._committed] = self._age   # record what we left
+            self._committed = best_eff.name
             self._commit_ticks = 0
-            return top
+            return best_eff
 
         return committed_prop
 
