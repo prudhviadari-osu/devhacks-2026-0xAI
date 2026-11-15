@@ -81,6 +81,24 @@ Controls: right-click = move, left-click a champion = auto-attack, Q/W/E/R = cas
 (flee/disengage/recall), `poke` (poke/kite). `HUMAN_CHAMP=Name` to play a
 specific champion; `HUMAN=0` for all-bots.
 
+## Unity renderer (nicer visuals, no AI rewrite)
+
+The AI is renderer-agnostic. `state_server.py` runs the sim and serves world
+state as JSON over HTTP; any renderer can display it. A Unity client is provided:
+
+```bash
+SCENARIO=balanced python3 state_server.py       # terminal 1: the sim + AI
+# then open the Unity project and press Play (see unity/UNITY_SETUP.md)
+```
+
+- `state_server.py` — HTTP `GET /state` returns the world (champions, minions,
+  positions, hp, each champ's current behavior, fx) and advances one tick.
+- `unity/SimRenderer.cs` — one Unity script that polls `/state` and renders
+  moving sprites. Unity does zero game logic; Python stays the brain.
+- `unity/UNITY_SETUP.md` — step-by-step for a first-time Unity user.
+
+pygame (`game.py`) still works as the no-setup fallback.
+
 ## Transition to an Overwolf overlay (later)
 
 The bot brain is fully decoupled from the sim (it only touches `GameState` /
