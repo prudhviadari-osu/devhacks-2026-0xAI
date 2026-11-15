@@ -136,8 +136,15 @@ function render(snap) {
   }
 
   updatePanel(snap);
+  updateFeed(snap);
   statusEl.textContent = `t=${snap.time}s  live`;
   statusEl.className = "";
+}
+
+function updateFeed(snap) {
+  const lines = snap.feed || [];
+  feedLines.innerHTML = lines.map(l =>
+    `<div class="ln">${l.replace(/</g, "&lt;")}</div>`).join("");
 }
 
 function updatePanel(snap) {

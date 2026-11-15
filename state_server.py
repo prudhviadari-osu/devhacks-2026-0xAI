@@ -98,12 +98,16 @@ class SimRunner:
             fx.append({"kind": e["kind"], "src_x": src.x, "src_y": src.y,
                        "dst_x": dst.x, "dst_y": dst.y,
                        "slot": e.get("slot"), "cc": e.get("cc", False)})
+        # recent combat feed (last ~8 meaningful events)
+        feed = [l for l in w.log
+                if any(k in l for k in ("hits", "autos", "stuns", "died",
+                                        "respawned", "heals", "last-hit"))][-8:]
         o = w.objective
         return {
             "time": round(w.time, 1), "map_size": MAP_SIZE, "desc": self.desc,
             "objective": {"name": o.name, "x": o.x, "y": o.y,
                           "up": w.objective_up(), "spawns_in": round(o.spawns_in, 1)},
-            "champions": champs, "minions": minions, "fx": fx,
+            "champions": champs, "minions": minions, "fx": fx, "feed": feed,
         }
 
 

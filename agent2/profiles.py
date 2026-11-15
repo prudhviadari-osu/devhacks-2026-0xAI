@@ -14,6 +14,7 @@ Behavior names:
 from __future__ import annotations
 
 ENCHANTER = {   # Sona, Lulu: protect/peel/shield, stay back, don't dive/farm
+    "spacing": 1.3,
     "shield_ally": 1.9,
     "cc_diver": 1.6,
     "body_block": 1.4,
@@ -31,6 +32,7 @@ ENCHANTER = {   # Sona, Lulu: protect/peel/shield, stay back, don't dive/farm
 }
 
 MAGE = {        # Ryze: poke/burst from range, farm to scale, don't dive
+    "spacing": 1.6,
     "poke": 1.6,
     "focus_target": 1.4,
     "last_hit": 1.3, "push_wave": 0.9,
@@ -46,6 +48,7 @@ MAGE = {        # Ryze: poke/burst from range, farm to scale, don't dive
 }
 
 MARKSMAN = {    # ADC: farm hard, kite-auto, focus in fights; never initiate
+    "spacing": 1.7,
     "last_hit": 1.7, "push_wave": 1.0,
     "auto_trade": 1.4,
     "focus_target": 1.6,
@@ -59,6 +62,7 @@ MARKSMAN = {    # ADC: farm hard, kite-auto, focus in fights; never initiate
 }
 
 BRUISER = {     # Jax: dive the carry, catch picks, commit; durable
+    "spacing": 0.5,
     "dive_carry": 1.6,
     "pick_isolated": 1.4,
     "all_in": 1.4,
@@ -74,6 +78,7 @@ BRUISER = {     # Jax: dive the carry, catch picks, commit; durable
 }
 
 TANK = {        # Zac: engage with the body, peel allies with CC, frontline
+    "spacing": 0.2,
     "cc_diver": 1.5,
     "body_block": 1.4,
     "collapse": 1.3,
@@ -98,6 +103,8 @@ ARCHETYPES = {
 CHAMPION_ARCHETYPE = {
     "Sona": "ENCHANTER", "Lulu": "ENCHANTER", "Ryze": "MAGE",
     "Jax": "BRUISER", "Zac": "TANK",
+    "Ashe": "MARKSMAN", "Darius": "BRUISER", "Lux": "MAGE",
+    "Leona": "TANK", "Ahri": "MAGE",
 }
 
 

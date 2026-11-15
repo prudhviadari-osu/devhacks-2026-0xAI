@@ -417,8 +417,21 @@ class SecureObjective(Capability):
     name, family, phases = "secure_objective", "OBJECTIVE", (Phase.OBJECTIVE,)
 
     def propose(self, p, w):
+        me = p.me
         o = p.world.objective
-        return Proposal(1.0 * self.w(w), Move(o.x, o.y), self.name,
+        d = p.dist(me, o)
+        # don't let EVERYONE rush the pit: only score for champs already near it,
+        # healthy, and when allies are committing too (so it's not a lone suicide).
+        if d > 3000 or me.hp_frac < 0.5:
+            return None
+        allies_near = sum(1 for a in p.allies() if p.dist(a, o) < 3000)
+        enemies_near = sum(1 for e in p.enemies() if p.dist(e, o) < 2500)
+        # need either a safe take (no enemies) or team presence to contest
+        if enemies_near > 0 and allies_near < 2:
+            return None
+        # closer + more allies committed = higher; falls off with distance
+        score = (0.9 - 0.2 * (d / 3000)) + 0.1 * allies_near
+        return Proposal(score * self.w(w), Move(o.x, o.y), self.name,
                         f"secure {o.name}", comms=f"Taking {o.name}!")
 
 
@@ -579,6 +592,44 @@ class Roam(Capability):
         return None
 
 
+class Spacing(Capability):
+    """Proactive self-preservation: keep a safe gap from the nearest threat,
+    scaled by how SQUISHY this champion is. Unique: this is personal, constant
+    positioning (not a panic flee) — a mage respects spacing at full HP, a tank
+    barely cares. This is what makes champions 'dodge' and not walk into melee.
+
+    'danger radius' = how close a threat can get before I want to back off. A
+    low-armor/MR, low-max-hp champ wants more space; a tank wants almost none.
+    """
+    name, family = "spacing", "SURVIVAL"
+    phases = (Phase.LANING, Phase.SKIRMISH, Phase.TEAMFIGHT, Phase.OBJECTIVE)
+
+    def propose(self, p, w):
+        me = p.me
+        threat = _nearest(me, p.enemies())
+        if not threat:
+            return None
+        d = p.dist(me, threat)
+        # individualized danger radius from durability: squishier = bigger gap.
+        # effective hp (hp * resist factor) normalized; mages/ADCs ~ small EHP.
+        ehp = me.stats.max_hp * (1 + (me.stats.armor + me.stats.mr) / 200.0)
+        squishy = max(0.0, 1.0 - ehp / 2600.0)       # 0 (tanky) .. ~0.6 (squishy)
+        danger_radius = 550 + squishy * 1200          # tank ~550, mage ~1200+
+        # only act if a threat is INSIDE my comfort zone and it can hurt me
+        if d >= danger_radius:
+            return None
+        # how urgently I want out: closer threat + squishier + lower hp = higher
+        closeness = 1.0 - d / danger_radius
+        urgency = closeness * (0.5 + squishy) * (1.3 - 0.5 * me.hp_frac)
+        # step away from the threat, but only enough to restore spacing (not flee)
+        ux, uy = (me.x - threat.x), (me.y - threat.y)
+        mag = max(1e-6, (ux * ux + uy * uy) ** 0.5)
+        step = (danger_radius - d) * 0.6
+        dest = (me.x + ux / mag * step, me.y + uy / mag * step)
+        return Proposal(urgency * self.w(w), Move(*dest), self.name,
+                        f"maintain spacing from {threat.name}")
+
+
 class Hold(Capability):
     """Default presence: stay near the carry. Unique: lowest-priority fallback
     so the champ is never idle in the open; always proposes, always low."""
@@ -606,6 +657,6 @@ FULL_REPERTOIRE = [
     FocusTarget(), ProtectCarry(), Reposition(),              # TEAMFIGHT (3)
     SecureObjective(), ContestObjective(), TradeObjective(),  # OBJECTIVE (3)
     Ward(),                                                   # VISION (1)
-    Flee(), Disengage(), Recall(),                            # SURVIVAL (3)
+    Spacing(), Flee(), Disengage(), Recall(),                 # SURVIVAL (4)
     Group(), Roam(), Hold(),                                  # MACRO (3)
 ]

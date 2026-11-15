@@ -104,19 +104,39 @@ def poke():
 
 
 def balanced_5v5():
-    """A FAIR mirror matchup: both teams have the same 5 champions at the same
-    level, meeting at mid. The real test of whether the bots play well — no side
-    has a built-in advantage, so outcome reflects decision quality, not the
-    setup. Also exercises the full behavior range across both teams."""
-    roster = [("Lulu", "ADC"), ("Sona", "SUPPORT"), ("Ryze", "MID"),
-              ("Jax", "TOP"), ("Zac", "JUNGLE")]
+    """A full 5v5 with TEN DISTINCT champions SPREAD ACROSS THE THREE LANES — so
+    play isn't a mid-blob. Bot and top laners start in their lanes; mid in mid;
+    jungle roams. Each side archetype-balanced. Champions default to their lane
+    and only group/rotate when it's worth it (via the behaviors), so the map
+    stays spread like a real game."""
+    # lane anchor points (ally side / enemy side) roughly along each lane
+    LANE = {
+        "TOP": ((1400, 7000), (7000, 13000)),
+        "MID": ((6400, 6400), (8400, 8400)),
+        "BOT": ((7000, 1400), (13000, 7000)),
+    }
+    # (name, role, lane) per side
+    blue = [("Ashe", "ADC", "BOT"), ("Sona", "SUPPORT", "BOT"),
+            ("Ryze", "MID", "MID"), ("Darius", "TOP", "TOP"),
+            ("Zac", "JUNGLE", "MID")]
+    red = [("Ahri", "ADC", "BOT"), ("Lulu", "SUPPORT", "BOT"),
+           ("Lux", "MID", "MID"), ("Jax", "TOP", "TOP"),
+           ("Leona", "JUNGLE", "MID")]
     champs = []
-    # blue team clustered lower-left of mid, red upper-right, symmetric offsets
-    for i, (name, role) in enumerate(roster):
-        ox = (i - 2) * 200
-        champs.append(_c(name, "ALLY", role, 7000 + ox, 7000 - ox))
-        champs.append(_c(name + "2", "ENEMY", role, 7900 + ox, 7900 - ox))
-    return champs, 5, "Fair 5v5 mirror at mid — the real test of bot quality", None
+    for name, role, lane in blue:
+        ax, ay = LANE[lane][0]
+        champs.append(_c(name, "ALLY", role, ax + _jit(), ay + _jit()))
+    for name, role, lane in red:
+        ex, ey = LANE[lane][1]
+        champs.append(_c(name, "ENEMY", role, ex + _jit(), ey + _jit()))
+    return champs, 20, "Full 5v5, 10 unique champs across 3 lanes — spread, not a blob", None
+
+
+_jit_i = [0]
+def _jit():
+    # small deterministic offset so lane-mates aren't perfectly stacked
+    _jit_i[0] += 1
+    return ((_jit_i[0] * 137) % 400) - 200
 
 
 SCENARIOS = {

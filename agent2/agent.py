@@ -129,7 +129,7 @@ class UtilityAgent:
 
     def _best_safe(self, proposals: list[Proposal]) -> Proposal | None:
         for pr in proposals:
-            if pr.name in ("flee", "disengage", "recall", "group",
+            if pr.name in ("spacing", "flee", "disengage", "recall", "group",
                            "shield_ally", "ward", "hold"):
                 return pr
         return None
