@@ -32,24 +32,28 @@ const PARTICLE = {
 };
 const particles = [];   // live particles {x,y,vx,vy,life,color}
 
-function emitParticles(wx, wy, vx, vy, name, n, spread) {
+// emit n particles FROM the champion's world origin (wx,wy). Velocities are in
+// world units/frame, kept small so particles stay near the champion (drift out
+// a little then fade) instead of flying off screen.
+function emitParticles(wx, wy, name, n, speed) {
   const color = PARTICLE[name] || PARTICLE._default;
   for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, sp = Math.random() * spread;
+    const a = Math.random() * Math.PI * 2;
+    const sp = (0.3 + Math.random() * 0.7) * speed;   // world units / frame
     particles.push({ x: wx, y: wy,
-      vx: vx * 0.3 + Math.cos(a) * sp, vy: vy * 0.3 + Math.sin(a) * sp,
-      life: 1, color });
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, color });
   }
 }
 
 function drawParticles() {
   for (let i = particles.length - 1; i >= 0; i--) {
     const pt = particles[i];
-    pt.x += pt.vx; pt.y += pt.vy; pt.life -= 0.05;
+    pt.x += pt.vx; pt.y += pt.vy; pt.life -= 0.045;
     if (pt.life <= 0) { particles.splice(i, 1); continue; }
     const [sx, sy] = toScreen(pt.x, pt.y);
     ctx.fillStyle = `rgba(${pt.color},${pt.life})`;
-    ctx.beginPath(); ctx.arc(sx, sy, Math.max(0.6, 3 * pt.life), 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx, sy, Math.max(1, scalePx(60) * pt.life), 0, 7);
+    ctx.fill();
   }
 }
 const feed = [];                // combat feed lines
@@ -269,11 +273,12 @@ function render(snap) {
     if (c.attacking) p.atk = Math.min(1, p.atk + 0.5 * (c.attack_speed || 0.7));
     else p.atk = Math.max(0, p.atk - 0.15);
 
-    // per-champion particles: a light trail when moving, a burst when attacking
-    if (moving && Math.random() < 0.4)
-      emitParticles(p.x, p.y, -p.sx * 20, -p.sy * 20, c.name, 1, 40);
-    if (c.attacking && Math.random() < 0.5)
-      emitParticles(p.x, p.y, 0, 0, c.name, 3, 120);
+    // per-champion particles, ALWAYS from the champion's world origin (p.x,p.y):
+    // a light trail when moving, a burst when attacking.
+    if (moving && Math.random() < 0.5)
+      emitParticles(p.x, p.y, c.name, 1, 45);        // gentle drift
+    if (c.attacking && Math.random() < 0.6)
+      emitParticles(p.x, p.y, c.name, 4, 90);        // attack burst
     const atkPulse = 1 + 0.35 * p.atk;
     // subtle walk bob when moving (frequency scales with move speed)
     const bob = moving ? 1 + 0.1 * Math.sin(perfNow() / (12000 / (c.move_speed||330))) : 1;
