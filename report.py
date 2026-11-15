@@ -65,7 +65,7 @@ def main():
             base = profile_for_champion(name)
             w = data.get("weights", {})
             drift = {k: round(w[k] - base.get(k, 1.0), 2)
-                     for k in w if abs(w[k] - base.get(k, 1.0)) > 0.08}
+                     for k in w if abs(w[k] - base.get(k, 1.0)) > 0.03}
             top = [kv for kv in sorted(drift.items(), key=lambda x: -x[1])
                    if kv[1] > 0][:3]
             bot = [kv for kv in sorted(drift.items(), key=lambda x: x[1])
