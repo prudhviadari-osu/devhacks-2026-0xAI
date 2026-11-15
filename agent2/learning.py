@@ -164,6 +164,13 @@ class Learner:
             self.weights[beh] = max(WEIGHT_MIN, min(WEIGHT_MAX, cur))
 
     # ---- persistence: keep what a champion learned ACROSS matches ----
+    def reward_snapshot(self) -> dict:
+        """Export this match's accumulated per-behavior reward estimates + item
+        prefs, so a parallel worker can return them for central aggregation
+        (instead of writing the shared brain file). Pure data, picklable."""
+        return {"beh_reward": dict(self.beh_reward),
+                "item_prefs": dict(getattr(self, "_item_prefs", {}))}
+
     def item_prefs(self) -> dict:
         """Learned per-item preference (reward-weighted). Items that correlated
         with reward get a positive bias; the shop uses this to build better."""
