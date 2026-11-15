@@ -79,7 +79,20 @@ class UtilityAgent:
     def decide(self, world: World, me_name: str) -> Decision:
         p = Perception(world, me_name)
         from agent2.phases import detect_phase
-        phase = detect_phase(p)
+        raw_phase = detect_phase(p)
+        # phase hysteresis: don't let the phase flip every tick (that flickers
+        # which behaviors are available and causes flee<->hold / advance<->hold
+        # churn). Hold a phase for a few ticks before accepting a change.
+        if not hasattr(self, "_phase"):
+            self._phase, self._phase_pending = raw_phase, 0
+        if raw_phase == self._phase:
+            self._phase_pending = 0          # stable -> reset the change counter
+        else:
+            self._phase_pending += 1         # a different phase is being seen
+            if self._phase_pending >= 6:     # sustained ~0.6s -> accept the change
+                self._phase = raw_phase
+                self._phase_pending = 0
+        phase = self._phase
         self.phase = phase
         # use the learner's adapting weights if learning is on, else static
         active_weights = self.learner.weights if self.learner else self.weights
