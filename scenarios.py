@@ -145,16 +145,20 @@ def balanced_5v5():
     # spending 2.5 min walking from the corners (which looked like 'everyone just
     # holds'). Respawns STILL return to the base corner (World sets it from the
     # nexus), so death still costs the long walk back.
+    # Start champions spread across their side (not stacked) and let the LOGICAL
+    # objective choice (advance behavior) decide where each goes — crowded spots
+    # get avoided, threatened allies get reinforced, otherwise they split across
+    # the map's towers/objectives. No fixed lane assignment.
     champs = []
     for i, (name, role) in enumerate(blue):
-        off = (i - 2) * 240
+        off = (i - 2) * 500
         champs.append(_c(name, "ALLY", role,
-                         6300 + off + _jit2(), 6300 - off + _jit2()))
+                         5500 + off + _jit2(), 5500 - off + _jit2()))
     for i, (name, role) in enumerate(red):
-        off = (i - 2) * 240
+        off = (i - 2) * 500
         champs.append(_c(name, "ENEMY", role,
-                         8700 + off + _jit2(), 8700 - off + _jit2()))
-    return champs, 15, "Full 5v5 — start near mid, clash fast (respawn at base)", None
+                         9500 + off + _jit2(), 9500 - off + _jit2()))
+    return champs, 15, "Full 5v5 — logical objective choice spreads the team", None
 
 
 def _jit2():

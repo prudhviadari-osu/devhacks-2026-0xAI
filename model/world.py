@@ -135,9 +135,9 @@ class World:
         self.structures.update(self, TICK)
 
     def _respawn_time(self) -> float:
-        """League-like scaling respawn: longer as the game goes on."""
-        # simple, readable curve: ~8s early, growing with match time
-        return min(45.0, 6.0 + self.time * 0.02)
+        """League-like scaling respawn: grows meaningfully with match time so a
+        late death is a real setback (base 10s -> up to ~50s late game)."""
+        return min(50.0, 10.0 + self.time * 0.08)
 
     ASSIST_WINDOW = 10.0   # seconds: recent damagers get assist credit on a kill
 

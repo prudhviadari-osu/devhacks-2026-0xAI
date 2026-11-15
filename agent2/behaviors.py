@@ -772,25 +772,79 @@ class Advance(Capability):
     phases = (Phase.LANING, Phase.SKIRMISH, Phase.TEAMFIGHT, Phase.OBJECTIVE)
 
     def propose(self, p, w):
+        """Logical objective choice (NOT fixed lanes): score every 'place worth
+        going' — attackable enemy structures, the dragon, and allies who need
+        reinforcement — by VALUE minus CROWDING, and head to the best one. This
+        naturally spreads the team: a crowded spot loses value so champions peel
+        off to open objectives; a threatened ally pulls a reinforcer; otherwise
+        people split across the map's multiple towers. A mix of attack + defense.
+        """
         me = p.me
+        candidates = self._objectives(p)
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda o: o["value"])
+        if best["value"] <= 0:
+            return None
+        tx, ty = best["x"], best["y"]
+        # already there and it's a fight target -> let combat behaviors act
+        if best["kind"] == "fight" and p.dist_xy(me, tx, ty) <= \
+                me.stats.attack_range * 1.2:
+            return None
+        return Proposal(best["value"] * self.w(w, 1.0), Move(tx, ty),
+                        self.name, best["label"])
+
+    def _objectives(self, p):
+        """Build a list of candidate destinations with VALUE - CROWDING scores."""
+        me = p.world and p.me
+        out = []
+        allies = p.allies()
         enemies = p.enemies()
+
+        def crowding(x, y):
+            # how many allies are already committed near this spot (0..n)
+            return sum(1 for a in allies if (a.x - x) ** 2 + (a.y - y) ** 2 < 1800 ** 2)
+
+        # --- ATTACK: each attackable enemy structure is an objective ---
+        sm = getattr(p.world, "structures", None)
+        if sm is not None:
+            for s in sm.structures:
+                if s.team == me.team or not s.alive or not sm.attackable(s):
+                    continue
+                base = 0.7 if s.kind == "nexus" else (0.55 if s.tier == 2 else 0.45)
+                dist_pen = min(0.3, p.dist_xy(me, s.x, s.y) / 20000)
+                crowd_pen = 0.18 * max(0, crowding(s.x, s.y) - 1)
+                out.append({"kind": "struct", "x": s.x, "y": s.y,
+                            "value": base - dist_pen - crowd_pen,
+                            "label": f"push {s.lane} {s.kind}"})
+
+        # --- OBJECTIVE: the dragon when it's up ---
+        o = p.world.objective
+        if p.world.objective_up():
+            crowd_pen = 0.18 * max(0, crowding(o.x, o.y) - 2)
+            out.append({"kind": "obj", "x": o.x, "y": o.y,
+                        "value": 0.6 - crowd_pen, "label": "take dragon"})
+
+        # --- DEFENSE/REINFORCE: an ally under threat pulls help (as needed) ---
+        for a in allies:
+            if a.name == me.name:
+                continue
+            ne = _nearest(a, enemies)
+            if ne and p.dist(a, ne) < 1800 and a.hp_frac < 0.75:
+                # value scales with how threatened the ally is; crowding lowers it
+                threat = (1 - a.hp_frac) + 0.3
+                crowd_pen = 0.2 * max(0, crowding(a.x, a.y) - 1)
+                out.append({"kind": "fight", "x": a.x, "y": a.y,
+                            "value": 0.65 * threat - crowd_pen,
+                            "label": f"reinforce {a.name}"})
+
+        # --- ATTACK: pick off an enemy, but avoid piling onto a crowded target ---
         if enemies:
             e = _nearest(me, enemies)
-            d = p.dist(me, e)
-            # already in fighting range -> let combat behaviors act, don't advance
-            if d <= me.stats.attack_range * 1.2:
-                return None
-            # move TOWARD the nearest enemy to get in range to fight. Score rises
-            # with distance so champions reliably close the gap instead of holding.
-            score = 0.5 + 0.3 * min(1.0, d / 5000)
-            return Proposal(score * self.w(w, 1.0), Move(e.x, e.y), self.name,
-                            f"advance on {e.name}")
-        # no enemies visible -> drift toward map center / objective
-        cx, cy = 7500.0, 7500.0
-        if ((me.x - cx) ** 2 + (me.y - cy) ** 2) ** 0.5 < 2000:
-            return None
-        return Proposal(0.3 * self.w(w, 1.0), Move(cx, cy), self.name,
-                        "advance toward center")
+            crowd_pen = 0.2 * max(0, crowding(e.x, e.y) - 2)
+            out.append({"kind": "fight", "x": e.x, "y": e.y,
+                        "value": 0.5 - crowd_pen, "label": f"engage {e.name}"})
+        return out
 
 
 class Hold(Capability):

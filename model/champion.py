@@ -129,6 +129,10 @@ class Champion:
         self.gold = 500                 # starting gold (League-ish)
         self.cs = 0                     # creep score (minions last-hit)
         self.items: list = []           # inventory (filled by the shop)
+        # preferred lane for map diversification (set by scenario/World).
+        # champions bias toward their lane's structures so the team spreads
+        # across top/mid/bot instead of all funneling to one spot.
+        self.lane = "MID"
         # combat record (for reward + scoreboard)
         self.kills = 0
         self.deaths = 0

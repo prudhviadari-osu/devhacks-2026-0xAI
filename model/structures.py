@@ -157,12 +157,25 @@ class StructureManager:
             if nx and not nx.alive:
                 self.winner = "ENEMY" if team == "ALLY" else "ALLY"
 
-    def nearest_attackable_enemy_structure(self, champ):
+    def nearest_attackable_enemy_structure(self, champ, prefer_lane=True):
         # if the enemy nexus is exposed, prioritize it (close out the game)
         enemy_team = "ENEMY" if champ.team == "ALLY" else "ALLY"
         nx = self.nexus(enemy_team)
         if nx is not None and nx.alive and self.attackable(nx):
             return nx
+        lane = getattr(champ, "lane", None)
+        # first pass: prefer a structure in the champion's OWN lane (spreads the
+        # team across lanes instead of everyone pushing the same one)
+        if prefer_lane and lane:
+            best, bd = None, float("inf")
+            for s in self.structures:
+                if s.team != champ.team and s.lane == lane and self.attackable(s):
+                    d = math.hypot(s.x - champ.x, s.y - champ.y)
+                    if d < bd:
+                        best, bd = s, d
+            if best is not None:
+                return best
+        # fallback: any attackable enemy structure
         best, bd = None, float("inf")
         for s in self.structures:
             if s.team != champ.team and self.attackable(s):
