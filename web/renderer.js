@@ -276,9 +276,9 @@ function render(snap) {
     // per-champion particles, ALWAYS from the champion's world origin (p.x,p.y):
     // a light trail when moving, a burst when attacking.
     if (moving && Math.random() < 0.5)
-      emitParticles(p.x, p.y, c.name, 1, 45);        // gentle drift
+      emitParticles(p.x, p.y, c.name, 1, 12);        // gentle drift near champ
     if (c.attacking && Math.random() < 0.6)
-      emitParticles(p.x, p.y, c.name, 4, 90);        // attack burst
+      emitParticles(p.x, p.y, c.name, 4, 22);        // tight attack burst
     const atkPulse = 1 + 0.35 * p.atk;
     // subtle walk bob when moving (frequency scales with move speed)
     const bob = moving ? 1 + 0.1 * Math.sin(perfNow() / (12000 / (c.move_speed||330))) : 1;
