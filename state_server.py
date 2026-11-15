@@ -49,16 +49,24 @@ class SimRunner:
     def __init__(self, scenario_name: str):
         champs, dragon_spawn, desc, _ = scenarios.get(scenario_name)
         self.world = World(champs, dragon_spawn=dragon_spawn)
+        # persist_key = champion base name, so learning carries across matches
         self.controllers = {
-            ch.name: UtilityBotController(profile_for_champion(ch.name))
+            ch.name: UtilityBotController(profile_for_champion(ch.name),
+                                          persist_key=ch.champion_key())
             for ch in champs
         }
         self.desc = desc
+        self._ticks = 0
 
     def tick(self) -> None:
         actions = {name: ctrl.decide(self.world, name)
                    for name, ctrl in self.controllers.items()}
         self.world.step(actions)
+        self._ticks += 1
+        # persist learned brains periodically (every ~30s of sim)
+        if self._ticks % 300 == 0:
+            for ctrl in self.controllers.values():
+                ctrl.agent.save_brain()
 
     def snapshot(self) -> dict:
         w = self.world

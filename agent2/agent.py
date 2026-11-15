@@ -37,7 +37,7 @@ class UtilityAgent:
 
     def __init__(self, repertoire: list[Capability] | None = None,
                  weights: dict[str, float] | None = None,
-                 learn: bool = True):
+                 learn: bool = True, persist_key: str | None = None):
         self.repertoire = repertoire or FULL_REPERTOIRE
         self.weights = weights or {}
         self.last: Decision | None = None
@@ -46,9 +46,17 @@ class UtilityAgent:
         # online learning: weights adapt toward what earns reward (Option A)
         self.learn = learn
         self.learner = None
+        self.persist_key = persist_key
         if learn:
             from agent2.learning import Learner
             self.learner = Learner(baseline=dict(self.weights))
+            # load weights learned in previous matches, if persisting
+            if persist_key:
+                self.learner.load(persist_key)
+
+    def save_brain(self) -> None:
+        if self.learner is not None and self.persist_key:
+            self.learner.save(self.persist_key)
 
     def decide(self, world: World, me_name: str) -> Decision:
         p = Perception(world, me_name)

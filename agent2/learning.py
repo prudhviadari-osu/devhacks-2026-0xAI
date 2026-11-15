@@ -26,15 +26,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-# reward term coefficients (how much each objective matters)
-W_SURVIVE = 1.0
-W_SUPPORT = 0.8
-W_OBJECTIVE = 0.6
+# ---- reward term weights (each objective tuned independently) ----
+# rebalanced so support + objectives matter, not just raw survival.
+W_SURVIVE   = 0.6     # staying alive / keeping hp (per-tick hp delta)
+W_TIME      = 0.25    # bonus for time stayed alive (rewards not feeding)
+W_DEATH     = 1.2     # penalty magnitude for dying
+W_KILL      = 1.0     # securing a kill
+W_STREAK    = 0.4     # extra per point of killstreak (snowball reward)
+W_ASSIST    = 0.7     # assisting a kill (rewards teamplay/support)
+W_SUPPORT   = 1.1     # nearby allies staying healthy because of you (weighted UP)
+W_PROTECT   = 0.9     # an ally you were near avoided death
+W_OBJECTIVE = 0.9     # dragon secured (weighted UP)
+W_TOWER     = 0.6     # enemy tower/structure damage (pushing/winning)
 
 LEARN_RATE = 0.06          # how fast weights move toward observed reward
 WEIGHT_MIN, WEIGHT_MAX = 0.05, 2.5
 BASELINE_PULL = 0.01       # gentle decay back toward the archetype baseline
 EWMA_ALPHA = 0.2           # smoothing on per-behavior reward estimates
+
+import os
+_BRAIN_DIR = os.path.join(os.path.dirname(__file__), "..", "brains")
 
 
 @dataclass
@@ -49,6 +60,11 @@ class Learner:
     _prev_ally_hp: float = 1.0
     _prev_obj_secured: bool = False
     _alive_prev: bool = True
+    _prev_kills: int = 0
+    _prev_assists: int = 0
+    _prev_streak: int = 0
+    _prev_time_alive: float = 0.0
+    _prev_enemy_tower_hp: float = -1.0
     adapt_count: int = 0
 
     def __post_init__(self):
@@ -70,33 +86,67 @@ class Learner:
             self._adapt()
 
     def _reward(self, champ, world) -> float:
-        # --- survivability ---
-        hp = champ.hp_frac if champ.alive else 0.0
-        survive = (hp - self._prev_hp)                  # hp gained/lost this window
-        if self._alive_prev and not champ.alive:
-            survive -= 1.0                              # big penalty for dying
-        self._prev_hp = hp
-        self._alive_prev = champ.alive
+        r = 0.0
 
-        # --- support: average hp of nearby allies (did I keep them alive?) ---
+        # --- survivability: hp delta, a death penalty, and time-alive bonus ---
+        hp = champ.hp_frac if champ.alive else 0.0
+        r += W_SURVIVE * (hp - self._prev_hp)
+        self._prev_hp = hp
+        if self._alive_prev and not champ.alive:
+            r -= W_DEATH                               # dying is costly
+        self._alive_prev = champ.alive
+        # time-alive: small steady reward for each second survived this life
+        r += W_TIME * max(0.0, champ.time_alive - self._prev_time_alive)
+        self._prev_time_alive = champ.time_alive
+
+        # --- kills / killstreaks / assists ---
+        if champ.kills > self._prev_kills:
+            r += W_KILL * (champ.kills - self._prev_kills)
+            r += W_STREAK * champ.killstreak           # snowball: bigger streak = more
+        self._prev_kills = champ.kills
+        if champ.assists > self._prev_assists:
+            r += W_ASSIST * (champ.assists - self._prev_assists)
+        self._prev_assists = champ.assists
+
+        # --- support: nearby allies staying healthy because of you ---
         allies = [a for a in world.allies_of(champ.team)
                   if a.name != champ.name and a.alive]
         near = [a for a in allies
-                if (a.x - champ.x) ** 2 + (a.y - champ.y) ** 2 < 2000 ** 2]
+                if (a.x - champ.x) ** 2 + (a.y - champ.y) ** 2 < 2200 ** 2]
         ally_hp = (sum(a.hp_frac for a in near) / len(near)) if near else self._prev_ally_hp
-        support = (ally_hp - self._prev_ally_hp)
+        r += W_SUPPORT * (ally_hp - self._prev_ally_hp)
         self._prev_ally_hp = ally_hp
+        # protect: a nearby ally that's healthy-ish while enemies are around = good
+        if near:
+            threatened = any(
+                any((e.x - a.x) ** 2 + (e.y - a.y) ** 2 < 1400 ** 2
+                    for e in world.enemies_of(champ.team))
+                for a in near)
+            if threatened:
+                r += W_PROTECT * 0.02 * len(near)      # steady while you shield them
 
-        # --- objective: reward the transition of securing the dragon ---
-        secured = world.objective.secured_by == champ.team \
-            if hasattr(world.objective, "secured_by") else False
-        objective = 0.0
+        # --- objective (dragon) ---
+        secured = getattr(world.objective, "secured_by", None) == champ.team
         if secured and not self._prev_obj_secured:
-            objective = 1.0
+            r += W_OBJECTIVE
         self._prev_obj_secured = secured
 
-        return (W_SURVIVE * survive + W_SUPPORT * support
-                + W_OBJECTIVE * objective)
+        # --- pushing: enemy tower hp going down near you (you're sieging) ---
+        sm = getattr(world, "structures", None)
+        if sm is not None:
+            enemy_tower_hp = sum(s.hp for s in sm.structures
+                                 if s.team != champ.team and s.kind == "tower")
+            if self._prev_enemy_tower_hp >= 0:
+                dropped = self._prev_enemy_tower_hp - enemy_tower_hp
+                if dropped > 0:
+                    # credit the push only if you're near the action
+                    if sm.nearest_attackable_enemy_structure(champ) and \
+                       any((s.x - champ.x) ** 2 + (s.y - champ.y) ** 2 < 1800 ** 2
+                           for s in sm.structures if s.team != champ.team):
+                        r += W_TOWER * min(1.0, dropped / 300.0)
+            self._prev_enemy_tower_hp = enemy_tower_hp
+
+        return r
 
     def _adapt(self) -> None:
         for beh, r in self.beh_reward.items():
@@ -109,6 +159,32 @@ class Learner:
             # gentle pull back to baseline so identity persists
             cur += BASELINE_PULL * (base - cur)
             self.weights[beh] = max(WEIGHT_MIN, min(WEIGHT_MAX, cur))
+
+    # ---- persistence: keep what a champion learned ACROSS matches ----
+    def save(self, champion_key: str) -> None:
+        import json, os
+        os.makedirs(_BRAIN_DIR, exist_ok=True)
+        path = os.path.join(_BRAIN_DIR, f"{champion_key}.json")
+        with open(path, "w") as f:
+            json.dump({"weights": self.weights,
+                       "beh_reward": self.beh_reward}, f)
+
+    def load(self, champion_key: str) -> bool:
+        """Load previously-learned weights if present. Returns True if loaded."""
+        import json, os
+        path = os.path.join(_BRAIN_DIR, f"{champion_key}.json")
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            # merge onto baseline so new behaviors still get their default
+            self.weights = dict(self.baseline)
+            self.weights.update(data.get("weights", {}))
+            self.beh_reward = data.get("beh_reward", {})
+            return True
+        except Exception:
+            return False
 
     # a small readable summary of what this champ has learned (for the panel)
     def summary(self) -> dict:

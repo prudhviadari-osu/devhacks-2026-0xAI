@@ -13,8 +13,9 @@ from model.world import Action, World
 
 
 class UtilityBotController(CharacterController):
-    def __init__(self, weights: dict[str, float] | None = None):
-        self.agent = UtilityAgent(weights=weights)
+    def __init__(self, weights: dict[str, float] | None = None,
+                 persist_key: str | None = None):
+        self.agent = UtilityAgent(weights=weights, persist_key=persist_key)
         self.last_comms = ""
         self.last_priority = ""
         self.last_considered: list = []
