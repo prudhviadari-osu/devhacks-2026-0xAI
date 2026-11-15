@@ -53,6 +53,14 @@ class Perception:
     def dist_xy(self, a, x: float, y: float) -> float:
         return ((a.x - x) ** 2 + (a.y - y) ** 2) ** 0.5
 
+    def trade(self) -> float:
+        """My current damage-trade balance: >0 winning (dealing more than taking),
+        <0 losing. Drives attack-vs-defense: press when winning, evade when not."""
+        me = self.me
+        if hasattr(me, "trade_balance"):
+            return me.trade_balance(self.world.time)
+        return 0.0
+
 
 class Capability:
     """Base class. Override propose(); return None to abstain this tick.

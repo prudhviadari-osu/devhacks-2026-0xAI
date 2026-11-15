@@ -142,6 +142,11 @@ class Champion:
         self.total_time_alive = 0.0     # cumulative across lives
         # recent attackers: name -> game-time of last damage (for assist credit)
         self.recent_damagers: dict[str, float] = {}
+        # rolling damage windows (list of (time, amount)) for DPS dealt/taken.
+        # These drive the attack-vs-defense decision: a champion winning the
+        # damage trade presses, one losing it evades/disengages.
+        self.dmg_dealt_log: list[tuple[float, float]] = []
+        self.dmg_taken_log: list[tuple[float, float]] = []
 
     # ---- queries ----
     @property
@@ -192,7 +197,31 @@ class Champion:
         self.hp = max(0.0, self.hp - dealt)
         if source:
             self.recent_damagers[source] = now
+        self.dmg_taken_log.append((now, dealt))
         return dealt
+
+    def record_dealt(self, amount: float, now: float) -> None:
+        self.dmg_dealt_log.append((now, amount))
+
+    # ---- DPS queries over a rolling window (default 3s) ----
+    def _windowed(self, log: list, now: float, window: float) -> float:
+        cutoff = now - window
+        # trim old entries in place so the logs stay bounded
+        while log and log[0][0] < cutoff - 2.0:
+            log.pop(0)
+        return sum(amt for t, amt in log if t >= cutoff) / window
+
+    def dps_dealt(self, now: float, window: float = 3.0) -> float:
+        return self._windowed(self.dmg_dealt_log, now, window)
+
+    def dps_taken(self, now: float, window: float = 3.0) -> float:
+        return self._windowed(self.dmg_taken_log, now, window)
+
+    def trade_balance(self, now: float, window: float = 3.0) -> float:
+        """Net DPS: >0 winning the trade (deal more than take), <0 losing it.
+        Normalized by max HP so it's comparable across champions."""
+        net = self.dps_dealt(now, window) - self.dps_taken(now, window)
+        return net / max(1.0, self.stats.max_hp) * 100.0  # ~ -X..+X scale
 
     def heal(self, amount: float) -> None:
         self.hp = min(self.stats.max_hp, self.hp + amount)

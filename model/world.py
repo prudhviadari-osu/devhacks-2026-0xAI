@@ -241,6 +241,7 @@ class World:
             return
         dealt = target.take_damage(champ.stats.ad, "physical",
                                    source=champ.name, now=self.time)
+        champ.record_dealt(dealt, self.time)     # track DPS dealt
         # attack cooldown = 1 / attack_speed
         champ.attack_cd = 1.0 / max(0.1, champ.stats.attack_speed)
         self.log.append(f"{champ.name} autos {target.name} for {dealt:.0f}")
@@ -268,6 +269,7 @@ class World:
         if dmg > 0 and target and target.team != champ.team:
             dealt = target.take_damage(dmg, ab.damage_type,
                                        source=champ.name, now=self.time)
+            champ.record_dealt(dealt, self.time)     # track DPS dealt
             self.log.append(
                 f"{champ.name} {ab.slot} ({ab.name}) hits {target.name} "
                 f"for {dealt:.0f} {ab.damage_type}")

@@ -123,6 +123,25 @@ class UtilityAgent:
                     <= DEADZONE ** 2:
                 pr.action = Idle()
 
+        # DPS TRADE BALANCE drives attack vs defense: if I'm WINNING the damage
+        # trade (dealing more than taking) press the attack; if I'm LOSING it,
+        # favor evasion/disengage. This is the real "damage taken vs dealt"
+        # balance the behavior was missing.
+        tb = p.trade()                      # >0 winning, <0 losing
+        if abs(tb) > 0.3:
+            ATTACK = {"dive_carry", "all_in", "pick_isolated", "collapse",
+                      "focus_target", "engage_cc", "poke", "auto_trade",
+                      "trade", "siege", "advance"}
+            DEFENSE = {"spacing", "kite", "flee", "disengage", "recall",
+                       "self_peel", "group", "shield_ally"}
+            # scale: winning tilts toward attack, losing toward defense. Capped.
+            tilt = max(-0.5, min(0.5, tb / 6.0))
+            for pr in proposals:
+                if pr.name in ATTACK:
+                    pr.score *= (1.0 + tilt)       # winning(+) boosts, losing(-) cuts
+                elif pr.name in DEFENSE:
+                    pr.score *= (1.0 - tilt)       # losing boosts defense
+
         # tiny decision noise so near-tied choices aren't perfectly deterministic
         # -> matches play out with natural variety (not the exact same game twice)
         import random
