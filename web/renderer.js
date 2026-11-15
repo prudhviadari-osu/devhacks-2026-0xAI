@@ -46,15 +46,24 @@ function emitParticles(wx, wy, name, n, speed) {
 }
 
 function drawParticles() {
+  // Isolate canvas state so glow/alpha leaked from champion-body drawing can't
+  // corrupt particles, and reset the specific state we depend on to defaults.
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
   for (let i = particles.length - 1; i >= 0; i--) {
     const pt = particles[i];
     pt.x += pt.vx; pt.y += pt.vy; pt.life -= 0.045;
     if (pt.life <= 0) { particles.splice(i, 1); continue; }
     const [sx, sy] = toScreen(pt.x, pt.y);
+    // small spark regardless of zoom (clamped), fading with life
+    const r = Math.max(1.5, Math.min(6, 4 * pt.life));
     ctx.fillStyle = `rgba(${pt.color},${pt.life})`;
-    ctx.beginPath(); ctx.arc(sx, sy, Math.max(1, scalePx(60) * pt.life), 0, 7);
+    ctx.beginPath(); ctx.arc(sx, sy, r, 0, 7);
     ctx.fill();
   }
+  ctx.restore();
 }
 const feed = [];                // combat feed lines
 
