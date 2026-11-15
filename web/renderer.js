@@ -81,25 +81,37 @@ function render(snap) {
     ctx.fillText(o.up ? "DRAGON UP" : `dragon ${o.spawns_in|0}s`, x, y + 20);
   }
 
-  // structures (towers + nexus)
+  // structures (towers + nexus) — drawn large/glowing so they're unmissable
   for (const s of snap.structures || []) {
-    const [x,y] = toScreen(s.x, s.y);
+    let [x,y] = toScreen(s.x, s.y);
+    const isNexus = s.kind === "nexus";
+    // nudge corner nexuses inward so they aren't clipped at the canvas edge
+    if (isNexus) { x = Math.max(28, Math.min(canvas.width - 28, x));
+                   y = Math.max(28, Math.min(canvas.height - 28, y)); }
     const col = s.team === "ALLY" ? "#4a7ad0" : "#d05a5a";
     if (!s.alive) {
-      ctx.strokeStyle = "rgba(120,120,130,.5)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x-5,y-5); ctx.lineTo(x+5,y+5);
-      ctx.moveTo(x+5,y-5); ctx.lineTo(x-5,y+5); ctx.stroke();   // rubble X
+      ctx.strokeStyle = "rgba(140,140,150,.6)"; ctx.lineWidth = 2;
+      const r = isNexus ? 14 : 7;
+      ctx.beginPath(); ctx.moveTo(x-r,y-r); ctx.lineTo(x+r,y+r);
+      ctx.moveTo(x+r,y-r); ctx.lineTo(x-r,y+r); ctx.stroke();   // rubble X
       continue;
     }
-    const sz = s.kind === "nexus" ? 11 : 7;
+    const sz = isNexus ? 18 : 8;
+    if (isNexus) {                         // glow ring + pulse so it stands out
+      const pulse = sz + 8 + 3 * Math.sin(perfNow() / 300);
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.5; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(x, y, pulse, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     ctx.fillStyle = col; ctx.fillRect(x - sz, y - sz, sz*2, sz*2);
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.strokeRect(x-sz,y-sz,sz*2,sz*2);
-    // structure hp bar
-    ctx.fillStyle = "#2a2e3a"; ctx.fillRect(x - sz, y - sz - 5, sz*2, 3);
-    ctx.fillStyle = "#6ad08a"; ctx.fillRect(x - sz, y - sz - 5, sz*2*s.hp_frac, 3);
-    if (s.kind === "nexus") {
-      ctx.fillStyle = col; ctx.font = "10px monospace"; ctx.textAlign = "center";
-      ctx.fillText("NEXUS", x, y + sz + 12);
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(x-sz,y-sz,sz*2,sz*2);
+    // hp bar above
+    ctx.fillStyle = "#2a2e3a"; ctx.fillRect(x - sz, y - sz - 7, sz*2, 4);
+    ctx.fillStyle = s.hp_frac > 0.3 ? "#6ad08a" : "#e05a5a";
+    ctx.fillRect(x - sz, y - sz - 7, sz*2*s.hp_frac, 4);
+    if (isNexus) {
+      ctx.fillStyle = "#fff"; ctx.font = "bold 12px monospace"; ctx.textAlign = "center";
+      ctx.fillText(`${s.team} NEXUS`, x, y + sz + 14);
     }
   }
 
