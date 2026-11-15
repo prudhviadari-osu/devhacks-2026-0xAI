@@ -792,8 +792,14 @@ class Hold(Capability):
         carries = _ally_carries(p, exclude=me.name)
         if carries:
             carry = _lowest(carries)
-            return Proposal(0.2 * self.w(w),
-                            Move(carry.x - 200, carry.y - 200), self.name,
+            tx, ty = carry.x - 200, carry.y - 200
+            # only MOVE if we're genuinely far from the hold spot; otherwise stay
+            # PUT (Idle). A hold that keeps nudging un-arrives other move spots and
+            # causes hold<->ward/advance bouncing — this is the core anti-churn fix.
+            if p.dist_xy(me, tx, ty) > 700:
+                return Proposal(0.2 * self.w(w), Move(tx, ty), self.name,
+                                f"move to hold near {carry.name}")
+            return Proposal(0.2 * self.w(w), Idle(), self.name,
                             f"hold near {carry.name}")
         return Proposal(0.1 * self.w(w), Idle(), self.name, "hold")
 

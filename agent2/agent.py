@@ -33,7 +33,7 @@ class UtilityAgent:
     # fraction before we switch, and we hold a pick for a minimum time. Together
     # these stop the peel<->kite<->attack flip-flop (near-tied scores thrashing).
     SWITCH_MARGIN = 0.20          # challenger must score 20% higher to steal
-    MIN_COMMIT_TICKS = 5          # ~0.5s at 10Hz before reconsidering a switch
+    MIN_COMMIT_TICKS = 8          # ~0.8s at 10Hz before reconsidering a switch
 
     def __init__(self, repertoire: list[Capability] | None = None,
                  weights: dict[str, float] | None = None,
@@ -91,11 +91,24 @@ class UtilityAgent:
             if prop is not None:
                 proposals.append(prop)
 
-        if not proposals:
-            self._committed = None
-            d = Decision(Idle(), "idle", "no proposal", "", 0.0)
-            self.last = d
-            return d
+        # CENTRAL ARRIVAL DEADZONE (anti-loop, applies to every behavior at once):
+        # a Move proposal whose destination we've basically reached is a no-op —
+        # keeping it lets two move-behaviors ping-pong (hold<->advance,
+        # group<->ward, etc.). Drop such proposals so a champion that has arrived
+        # doesn't keep "deciding" to go where it already is.
+        from model.world import Move
+        me = p.me
+        DEADZONE = 350.0
+        for pr in proposals:
+            # if a Move proposal has basically ARRIVED, convert it to Idle but
+            # KEEP its name/score. This is the key anti-churn fix: an arrived
+            # behavior stays selected (champion stands still) instead of
+            # vanishing and letting another move-behavior yank it back. No
+            # move->arrive->hold->move-back bounce can form.
+            if isinstance(pr.action, Move) and \
+                    ((pr.action.x - me.x) ** 2 + (pr.action.y - me.y) ** 2) \
+                    <= DEADZONE ** 2:
+                pr.action = Idle()
 
         # tiny decision noise so near-tied choices aren't perfectly deterministic
         # -> matches play out with natural variety (not the exact same game twice)
@@ -126,54 +139,72 @@ class UtilityAgent:
             self.learner.observe(p.me, world, best.name)
         return d
 
+    # behaviors that are low-urgency "positioning" — the churn-prone ones
+    LOW_PRIORITY = {"hold", "advance", "ward", "group", "recall", "roam",
+                    "last_hit", "push_wave", "freeze_wave", "spacing"}
+    HARD_DWELL = 12     # min ticks to keep a decision (unless an emergency)
+    EMERGENCY = 1.6     # a proposal this strong interrupts anything immediately
+
     def _apply_hysteresis(self, top: Proposal,
                           proposals: list[Proposal]) -> Proposal:
-        """Stick with the committed capability unless a challenger clearly wins.
+        """Clean state machine that prevents oscillation for ALL behaviors.
 
-        Prevents thrashing between near-tied capabilities (the infinite
-        peel/kite/attack loop). We only switch if either (a) the committed
-        capability no longer proposes, or (b) the new top beats it by
-        SWITCH_MARGIN after the minimum commit time.
+        Rules, in order:
+          1. An EMERGENCY (very high score) always wins immediately.
+          2. Within the dwell window, keep the current decision. If the current
+             behavior vanished (e.g. a move arrived), HOLD instead of hopping.
+          3. After dwell, switch only if a challenger clearly beats the current
+             one. Two low-priority behaviors need a large margin; otherwise a
+             champion settles into HOLD rather than churning.
         """
         self._age += 1
-        OSC_COOLDOWN = 25   # ticks: a behavior just left can't be re-taken soon
-
-        # penalize any proposal we recently SWITCHED AWAY FROM, so a ward<->group
-        # style cycle can't keep re-selecting the behavior it just abandoned.
-        def effective(pr: Proposal) -> float:
-            left_at = self._recent_left.get(pr.name)
-            if left_at is not None and self._age - left_at < OSC_COOLDOWN:
-                return pr.score * 0.4     # heavy damp on a just-abandoned behavior
-            return pr.score
-
-        committed_prop = next(
-            (pr for pr in proposals if pr.name == self._committed), None)
-
-        # recompute the "top" using effective (cooldown-penalized) scores
-        best_eff = max(proposals, key=effective)
-
-        # commitment vanished -> take the best effective (not raw top), and record
-        if committed_prop is None:
-            if self._committed and self._committed != best_eff.name:
-                self._recent_left[self._committed] = self._age
-            self._committed = best_eff.name
-            self._commit_ticks = 0
-            return best_eff
-
         self._commit_ticks += 1
-        if self._commit_ticks < self.MIN_COMMIT_TICKS:
-            return committed_prop
+        by_name = {pr.name: pr for pr in proposals}
+        hold_prop = by_name.get("hold")
+        top_raw = max(proposals, key=lambda pr: pr.score)
 
-        # past min commit: switch only if a challenger CLEARLY beats us on
-        # effective score (so a just-left behavior can't win via the cooldown)
-        if best_eff.name != self._committed and \
-                effective(best_eff) > effective(committed_prop) * (1 + self.SWITCH_MARGIN):
-            self._recent_left[self._committed] = self._age   # record what we left
-            self._committed = best_eff.name
-            self._commit_ticks = 0
-            return best_eff
+        # 1. emergency override — a big spike interrupts anything, resets dwell
+        if top_raw.name != self._committed and top_raw.score >= self.EMERGENCY:
+            self._commit(top_raw.name)
+            return top_raw
 
-        return committed_prop
+        committed = by_name.get(self._committed)
+
+        # 2. within dwell: ABSOLUTELY keep the current decision. If the committed
+        # behavior vanished (move arrived), hold in place. No switching at all.
+        if self._committed is not None and self._commit_ticks <= self.HARD_DWELL:
+            if committed is not None:
+                return committed
+            if hold_prop is not None:
+                return hold_prop   # arrived / vanished -> settle, don't hop
+            # committed gone and no hold -> fall through to re-decide
+
+        # 3. past dwell (or nothing committed): decide whether to switch
+        chal = top_raw
+        if committed is None:
+            # current behavior is gone. Take a clearly-worthwhile action, else hold.
+            if chal.name not in self.LOW_PRIORITY and chal.score > 0.45:
+                self._commit(chal.name)
+                return chal
+            if hold_prop is not None:
+                self._commit("hold")
+                return hold_prop
+            self._commit(chal.name)
+            return chal
+
+        # both present: require a margin to switch; bigger if both low-priority
+        margin = self.SWITCH_MARGIN
+        if self._committed in self.LOW_PRIORITY and chal.name in self.LOW_PRIORITY:
+            margin = 1.5     # low-priority wanders almost never steal from each other
+        if chal.name != self._committed and \
+                chal.score > committed.score * (1 + margin):
+            self._commit(chal.name)
+            return chal
+        return committed
+
+    def _commit(self, name: str) -> None:
+        self._committed = name
+        self._commit_ticks = 0
 
     # risky = commits us toward/at enemies
     def _is_risky(self, prop: Proposal) -> bool:
