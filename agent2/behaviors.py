@@ -625,23 +625,31 @@ class Spacing(Capability):
             return None
         d = p.dist(me, threat)
         # individualized danger radius from durability: squishier = bigger gap.
-        # effective hp (hp * resist factor) normalized; mages/ADCs ~ small EHP.
         ehp = me.stats.max_hp * (1 + (me.stats.armor + me.stats.mr) / 200.0)
         squishy = max(0.0, 1.0 - ehp / 2600.0)       # 0 (tanky) .. ~0.6 (squishy)
         danger_radius = 550 + squishy * 1200          # tank ~550, mage ~1200+
-        # only act if a threat is INSIDE my comfort zone and it can hurt me
         if d >= danger_radius:
             return None
-        # how urgently I want out: closer threat + squishier + lower hp = higher
         closeness = 1.0 - d / danger_radius
-        urgency = closeness * (0.5 + squishy) * (1.3 - 0.5 * me.hp_frac)
-        # step away from the threat, but only enough to restore spacing (not flee)
+        # EVASIVE movement = away-vector BLENDED with a perpendicular strafe
+        # (sidestep/dodge), not a straight retreat. The champion stays in the
+        # fight but jukes, which is survival-through-movement, not fleeing.
         ux, uy = (me.x - threat.x), (me.y - threat.y)
         mag = max(1e-6, (ux * ux + uy * uy) ** 0.5)
-        step = (danger_radius - d) * 0.6
-        dest = (me.x + ux / mag * step, me.y + uy / mag * step)
-        return Proposal(urgency * self.w(w), Move(*dest), self.name,
-                        f"maintain spacing from {threat.name}")
+        ax, ay = ux / mag, uy / mag                   # unit away-from-threat
+        px, py = -ay, ax                              # perpendicular (strafe)
+        # alternate strafe direction over time so it reads as juking, not drifting
+        import math as _m
+        side = 1 if _m.sin(p.world.time * 1.3 + me.x) >= 0 else -1
+        # low hp -> weight more toward backing off; healthy -> more sideways dodge
+        away_w = 0.4 + 0.5 * (1 - me.hp_frac)
+        strafe_w = 1.0 - away_w
+        step = (danger_radius - d) * 0.7 + 180
+        dx = (ax * away_w + px * strafe_w * side) * step
+        dy = (ay * away_w + py * strafe_w * side) * step
+        urgency = (0.6 + closeness) * (0.6 + squishy) * (1.2 - 0.4 * me.hp_frac)
+        return Proposal(urgency * self.w(w), Move(me.x + dx, me.y + dy),
+                        self.name, f"evade {threat.name} (juke)")
 
 
 class DefendStructure(Capability):

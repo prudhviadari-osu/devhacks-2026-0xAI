@@ -237,9 +237,10 @@ function render(snap) {
     const atkPulse = 1 + 0.35 * p.atk;
     // subtle walk bob when moving (frequency scales with move speed)
     const bob = moving ? 1 + 0.1 * Math.sin(perfNow() / (12000 / (c.move_speed||330))) : 1;
-    // champion radius scales with zoom: a real champ is ~120 world units, so it
-    // grows when the camera zooms in -> bodies read as distinct, not dots.
-    const baseR = Math.max(7, Math.min(22, scalePx(260)));
+    // champion radius: scaled with zoom but kept SMALL and capped so bodies
+    // never cover the gaps between champions — you can see spacing. A champ is
+    // ~120 world units across; we draw a bit under that and cap tightly.
+    const baseR = Math.max(5, Math.min(11, scalePx(130)));
     const r = baseR * bob * atkPulse;
 
     // body (flash white on hit, orange tint while attacking)

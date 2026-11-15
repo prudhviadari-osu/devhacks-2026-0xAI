@@ -84,6 +84,8 @@
     <div id="champs"></div>
     <div id="feed"><h2>Combat</h2><div id="feedlines"></div></div>
   </div>
-<script src="renderer.js"></script>
+<!-- the ?v query forces the browser to reload the script when it changes,
+     so you never get a stale cached renderer. Bump v when you pull updates. -->
+<script src="renderer.js?v=3"></script>
 </body>
 </html>
